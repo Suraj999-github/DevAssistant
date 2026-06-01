@@ -1,3 +1,8 @@
+﻿using Serilog.Events;
+using Serilog;
+using DevAssistant.Api.Configuration;
+using DevAssistant.Api.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -7,6 +12,83 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// ─── Bootstrap Serilog before the host builds ────────────────────────────────
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Debug()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .Enrich.WithThreadId()
+    .Enrich.WithMachineName()
+    .WriteTo.Console(
+        outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+    .CreateBootstrapLogger();
+
+try
+{
+    Log.Information("═══════════════════════════════════════════════════");
+    Log.Information("   Dev Assistant Agent — Environment Check          ");
+    Log.Information("═══════════════════════════════════════════════════");
+
+    // ─── Build the .NET Generic Host ─────────────────────────────────────────
+    var host = Host.CreateDefaultBuilder(args)
+        .UseSerilog((context, services, configuration) => configuration
+            .ReadFrom.Configuration(context.Configuration)
+            .ReadFrom.Services(services)
+            .Enrich.FromLogContext()
+            .Enrich.WithThreadId()
+            .WriteTo.Console(
+                outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}"))
+        .ConfigureAppConfiguration((ctx, cfg) =>
+        {
+            cfg.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+            cfg.AddJsonFile($"appsettings.{ctx.HostingEnvironment.EnvironmentName}.json",
+                optional: true, reloadOnChange: true);
+            cfg.AddEnvironmentVariables();
+        })
+        .ConfigureServices((ctx, services) =>
+        {
+            // Register strongly-typed options
+            services.Configure<AgentOptions>(
+                ctx.Configuration.GetSection(AgentOptions.SectionName));
+
+            // Register a named HttpClient for Ollama health checks
+            services.AddHttpClient("ollama", (sp, client) =>
+            {
+                var options = ctx.Configuration
+                    .GetSection(AgentOptions.SectionName)
+                    .Get<AgentOptions>()!;
+                client.BaseAddress = options.OllamaUri;
+                client.Timeout = TimeSpan.FromSeconds(10);
+            });
+
+            // Register a named HttpClient for Qdrant health checks
+            services.AddHttpClient("qdrant", (sp, client) =>
+            {
+                var options = ctx.Configuration
+                    .GetSection(AgentOptions.SectionName)
+                    .Get<AgentOptions>()!;
+                client.BaseAddress = options.QdrantUri;
+                client.Timeout = TimeSpan.FromSeconds(10);
+            });
+
+            // Register the startup health checker
+            services.AddTransient<EnvironmentHealthChecker>();
+        })
+        .Build();
+
+    // ─── Run the health check ─────────────────────────────────────────────────
+    var checker = host.Services.GetRequiredService<EnvironmentHealthChecker>();
+    await checker.RunAsync();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly during startup");
+    throw;
+}
+finally
+{
+    Log.CloseAndFlush();
+}
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
