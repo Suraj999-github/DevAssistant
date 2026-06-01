@@ -1,7 +1,7 @@
-﻿using Serilog.Events;
-using Serilog;
-using DevAssistant.Api.Configuration;
+﻿using DevAssistant.Api.Configuration;
 using DevAssistant.Api.Services;
+using Serilog;
+using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
 
