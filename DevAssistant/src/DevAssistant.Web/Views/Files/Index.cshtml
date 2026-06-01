@@ -1,0 +1,147 @@
+@model DevAssistant.Models.FileBrowserViewModel
+@{ ViewData["Title"] = "File Browser"; }
+
+<div class="row g-3 h-100">
+    <!-- File tree -->
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span><i class="bi bi-folder2-open me-2"></i>Files</span>
+                <small class="text-secondary text-truncate ms-2" style="max-width:160px">
+                    @Model.CurrentPath
+                </small>
+            </div>
+            <div class="card-body p-0 overflow-auto" style="max-height:70vh">
+                <ul class="list-group list-group-flush file-list">
+                    @if (Model.CurrentPath != ".")
+                    {
+                        <li class="list-group-item list-group-item-action file-item">
+                            <a href="/Files?path=@Uri.EscapeDataString(
+                                   System.IO.Path.GetDirectoryName(Model.CurrentPath) ?? ".")"
+                               class="text-decoration-none text-secondary">
+                                <i class="bi bi-arrow-up me-2"></i>..
+                            </a>
+                        </li>
+                    }
+                    @foreach (var entry in Model.Entries)
+                    {
+                        var isSelected = entry.Path == Model.SelectedFile;
+                        <li class="list-group-item list-group-item-action file-item @(isSelected ? "active" : "")">
+                            @if (entry.IsDirectory)
+                            {
+                                <a href="/Files?path=@Uri.EscapeDataString(entry.Path)"
+                                   class="text-decoration-none @(isSelected ? "text-white" : "text-warning")">
+                                    <i class="bi bi-folder-fill me-2"></i>@entry.Name
+                                </a>
+                            }
+                            else
+                            {
+                                <a href="/Files?path=@Uri.EscapeDataString(Model.CurrentPath)&selectedFile=@Uri.EscapeDataString(entry.Path)"
+                                   class="text-decoration-none @(isSelected ? "text-white" : "")">
+                                    <i class="bi @GetFileIcon(entry.Extension) me-2"></i>@entry.Name
+                                    <small class="float-end text-secondary">
+                                        @FormatSize(entry.SizeBytes)
+                                    </small>
+                                </a>
+                            }
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- File content editor -->
+    <div class="col-md-8">
+        <div class="card h-100">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="bi bi-file-code me-2"></i>
+                    @(Model.SelectedFile ?? "Select a file")
+                </span>
+                @if (Model.SelectedFile is not null)
+                {
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-primary" id="saveBtn">
+                            <i class="bi bi-floppy me-1"></i>Save
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" id="copyBtn">
+                            <i class="bi bi-clipboard me-1"></i>Copy
+                        </button>
+                    </div>
+                }
+            </div>
+            <div class="card-body p-0 d-flex flex-column">
+                @if (Model.FileContent is not null)
+                {
+                    <form method="post" action="/Files/Save" id="saveForm" class="d-flex flex-column h-100">
+                        <input type="hidden" name="path" value="@Model.SelectedFile" />
+                        <textarea name="content"
+                                  id="fileEditor"
+                                  class="form-control font-monospace file-editor flex-grow-1 border-0 rounded-0"
+                                  spellcheck="false">@Model.FileContent</textarea>
+                    </form>
+                }
+                else
+                {
+                    <div class="d-flex align-items-center justify-content-center h-100 text-secondary">
+                        <div class="text-center">
+                            <i class="bi bi-file-earmark display-4 mb-3"></i>
+                            <p>Select a file to view or edit</p>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    document.getElementById('saveBtn')?.addEventListener('click', () =>
+        document.getElementById('saveForm').submit());
+
+    document.getElementById('copyBtn')?.addEventListener('click', () => {
+        const content = document.getElementById('fileEditor')?.value;
+        if (content) navigator.clipboard.writeText(content);
+    });
+</script>
+}
+
+@functions {
+
+    public static string GetFileIcon(string ext)
+    {
+        ext = ext?.ToLower() ?? "";
+
+        switch (ext)
+        {
+            case ".cs":
+                return "bi-filetype-cs";
+            case ".json":
+                return "bi-filetype-json";
+            case ".md":
+                return "bi-filetype-md";
+            case ".xml":
+                return "bi-filetype-xml";
+            case ".csproj":
+            case ".sln":
+                return "bi-gear-fill";
+            case ".txt":
+                return "bi-file-text";
+            default:
+                return "bi-file-earmark";
+        }
+    }
+
+    public static string FormatSize(long bytes)
+    {
+        if (bytes < 1024)
+            return $"{bytes}B";
+
+        if (bytes < 1048576)
+            return $"{bytes / 1024}KB";
+
+        return $"{bytes / 1048576}MB";
+    }
+}

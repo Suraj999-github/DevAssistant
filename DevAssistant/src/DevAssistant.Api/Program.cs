@@ -1,5 +1,5 @@
-﻿using DevAssistant.Api.Configuration;
-using DevAssistant.Api.Services;
+﻿using DevAssistant.Api.Services;
+using DevAssistant.Configuration;
 using DevAssistant.Services;
 using Serilog;
 using Serilog.Events;

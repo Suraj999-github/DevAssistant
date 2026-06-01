@@ -1,0 +1,162 @@
+﻿@{
+    ViewData["Title"] = "Chat";
+}
+
+<div class="chat-layout">
+    <!-- Message history -->
+    <div class="chat-messages" id="chatMessages">
+        <div class="message assistant">
+            <div class="message-avatar"><i class="bi bi-robot"></i></div>
+            <div class="message-bubble">
+                Hello! I'm your Dev Assistant. I can read files, run tests,
+                search your codebase semantically, and suggest code fixes.
+                What would you like to work on?
+            </div>
+        </div>
+    </div>
+
+    <!-- Input bar -->
+    <div class="chat-input-bar">
+        <div class="input-group">
+            <textarea id="chatInput"
+                      class="form-control"
+                      rows="2"
+                      placeholder="Ask me to read a file, run tests, search code..."
+                      style="resize:none;"></textarea>
+            <button class="btn btn-primary" id="sendBtn" title="Send (Ctrl+Enter)">
+                <i class="bi bi-send-fill"></i>
+            </button>
+            <button class="btn btn-outline-secondary" id="stopBtn"
+                    title="Stop generation" style="display:none">
+                <i class="bi bi-stop-fill"></i>
+            </button>
+        </div>
+        <div class="d-flex gap-2 mt-2 align-items-center">
+            <small class="text-secondary">Ctrl+Enter to send</small>
+            <div class="ms-auto d-flex gap-2 align-items-center">
+                <span class="badge bg-secondary" id="tokenCount">0 tokens</span>
+                <button class="btn btn-sm btn-outline-secondary" id="clearBtn">
+                    <i class="bi bi-trash me-1"></i>Clear
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        const messagesEl = document.getElementById('chatMessages');
+        const inputEl    = document.getElementById('chatInput');
+        const sendBtn    = document.getElementById('sendBtn');
+        const stopBtn    = document.getElementById('stopBtn');
+        const clearBtn   = document.getElementById('clearBtn');
+        const tokenEl    = document.getElementById('tokenCount');
+
+        let controller = null;
+        let totalTokens = 0;
+
+        // Ctrl+Enter sends
+        inputEl.addEventListener('keydown', e => {
+            if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); send(); }
+        });
+        sendBtn.addEventListener('click', send);
+        stopBtn.addEventListener('click', () => { if (controller) controller.abort(); });
+        clearBtn.addEventListener('click', () => {
+            messagesEl.innerHTML = '';
+            totalTokens = 0;
+            tokenEl.textContent = '0 tokens';
+        });
+
+        function appendMessage(role, content = '') {
+            const wrapper = document.createElement('div');
+            wrapper.className = `message ${role}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.innerHTML = role === 'user'
+                ? '<i class="bi bi-person-fill"></i>'
+                : '<i class="bi bi-robot"></i>';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            bubble.textContent = content;
+
+            wrapper.appendChild(avatar);
+            wrapper.appendChild(bubble);
+            messagesEl.appendChild(wrapper);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            return bubble;
+        }
+
+        async function send() {
+            const text = inputEl.value.trim();
+            if (!text) return;
+
+            inputEl.value = '';
+            appendMessage('user', text);
+
+            const bubble = appendMessage('assistant');
+            bubble.innerHTML = '<span class="typing-indicator"><span></span><span></span><span></span></span>';
+
+            sendBtn.style.display = 'none';
+            stopBtn.style.display = '';
+
+            controller = new AbortController();
+            let fullText = '';
+
+            try {
+                const url = `/chat/stream?message=${encodeURIComponent(text)}`;
+                const es = new EventSource(url);
+
+                es.onmessage = (e) => {
+                    if (e.data === '[DONE]') {
+                        es.close();
+                        done();
+                        return;
+                    }
+                    try {
+                        const d = JSON.parse(e.data);
+                        if (d.error) {
+                            bubble.textContent = '⚠️ ' + d.error;
+                            es.close(); done(); return;
+                        }
+                        fullText += d.token;
+                        totalTokens++;
+                        tokenEl.textContent = totalTokens + ' tokens';
+
+                        // Render markdown-ish (code blocks highlighted)
+                        bubble.innerHTML = renderContent(fullText);
+                        messagesEl.scrollTop = messagesEl.scrollHeight;
+                    } catch {}
+                };
+
+                es.onerror = () => { es.close(); done(); };
+
+            } catch (err) {
+                bubble.textContent = '⚠️ ' + err.message;
+                done();
+            }
+        }
+
+        function done() {
+            sendBtn.style.display = '';
+            stopBtn.style.display = 'none';
+            controller = null;
+            // Re-highlight code blocks
+            messagesEl.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+        }
+
+        function renderContent(text) {
+            // Simple code block rendering
+            return text
+                .replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) =>
+                    `<pre><code class="${lang || ''}">${escHtml(code.trim())}</code></pre>`)
+                .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+                .replace(/\n/g, '<br>');
+        }
+
+        function escHtml(s) {
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+    </script>
+}

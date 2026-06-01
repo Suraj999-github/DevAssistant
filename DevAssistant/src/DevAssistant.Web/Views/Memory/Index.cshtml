@@ -1,0 +1,123 @@
+﻿@model DevAssistant.Models.MemoryViewModel
+@{
+    ViewData["Title"] = "Memory";
+}
+
+<div class="row g-4">
+    <!-- Add + Search -->
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-plus-circle me-2"></i>Add Memory
+            </div>
+            <div class="card-body">
+                <form method="post" action="/Memory/Add">
+                    <div class="mb-3">
+                        <textarea name="content" class="form-control" rows="4"
+                                  placeholder="E.g. The auth service uses JWT with 1h expiry"
+                                  required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-save me-1"></i>Store Fact
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-search me-2"></i>Semantic Search
+            </div>
+            <div class="card-body">
+                <form method="get" action="/Memory">
+                    <div class="input-group">
+                        <input type="text" name="query" class="form-control"
+                               placeholder="Search memories..."
+                               value="@Model.SearchQuery" />
+                        <button type="submit" class="btn btn-outline-primary">
+                            <i class="bi bi-search"></i>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Memory entries -->
+    <div class="col-md-8">
+        @if (Model.SearchResults is { Count: > 0 })
+        {
+            <div class="alert alert-info py-2">
+                <i class="bi bi-search me-2"></i>
+                Search results for <strong>"@Model.SearchQuery"</strong>
+                — @Model.SearchResults.Count match(es)
+                <a href="/Memory" class="ms-2 alert-link small">Clear</a>
+            </div>
+
+            @foreach (var entry in Model.SearchResults)
+            {
+                <div class="card memory-card mb-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <span class="badge bg-primary">@entry.Collection</span>
+                            <div class="d-flex align-items-center gap-2">
+                                @if (entry.RelevanceScore.HasValue)
+                                {
+                                    <span class="badge bg-success">
+                                        @entry.RelevanceScore.Value.ToString("P0") match
+                                    </span>
+                                }
+                                <form method="post" action="/Memory/Delete" class="d-inline">
+                                    <input type="hidden" name="id" value="@entry.Id" />
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                        <p class="mb-1">@entry.Content</p>
+                        <small class="text-secondary">@entry.CreatedAt.ToString("MMM dd, HH:mm")</small>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="mb-0 text-secondary">
+                    All Memories
+                    <span class="badge bg-secondary ms-2">@Model.TotalCount</span>
+                </h6>
+            </div>
+
+            @if (Model.Entries.Count == 0)
+            {
+                <div class="card">
+                    <div class="card-body text-center py-5 text-secondary">
+                        <i class="bi bi-brain display-4 mb-3"></i>
+                        <p>No memories stored yet.<br />Add facts the agent should remember across sessions.</p>
+                    </div>
+                </div>
+            }
+
+            @foreach (var entry in Model.Entries)
+            {
+                <div class="card memory-card mb-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <span class="badge bg-secondary">@entry.Collection</span>
+                            <form method="post" action="/Memory/Delete">
+                                <input type="hidden" name="id" value="@entry.Id" />
+                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </div>
+                        <p class="mb-1">@entry.Content</p>
+                        <small class="text-secondary">@entry.CreatedAt.ToString("MMM dd, HH:mm")</small>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>

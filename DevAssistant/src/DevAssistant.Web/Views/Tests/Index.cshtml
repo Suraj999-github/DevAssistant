@@ -1,0 +1,120 @@
+﻿@model DevAssistant.Models.TestRunnerViewModel
+@{
+    ViewData["Title"] = "Test Runner";
+}
+
+<div class="row g-4">
+    <!-- Run panel -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-play-circle me-2"></i>Run Tests
+            </div>
+            <div class="card-body">
+                <form method="post" action="/Tests/Run" id="testForm">
+                    <div class="mb-3">
+                        <label class="form-label text-secondary small">Filter (optional)</label>
+                        <input type="text" name="filter" class="form-control"
+                               placeholder="ClassName.MethodName" />
+                        <div class="form-text">Leave empty to run all tests</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100" id="runBtn">
+                        <i class="bi bi-play-fill me-2"></i>Run
+                    </button>
+                </form>
+
+                @if (Model.LastRun is not null)
+                {
+                    <hr />
+                    <div class="d-flex justify-content-around text-center">
+                        <div>
+                            <div class="h4 text-success mb-0">@Model.LastRun.Passed</div>
+                            <small class="text-secondary">Passed</small>
+                        </div>
+                        <div>
+                            <div class="h4 text-danger mb-0">@Model.LastRun.Failed</div>
+                            <small class="text-secondary">Failed</small>
+                        </div>
+                        <div>
+                            <div class="h4 text-warning mb-0">@Model.LastRun.Skipped</div>
+                            <small class="text-secondary">Skipped</small>
+                        </div>
+                    </div>
+                    <div class="mt-2 text-center">
+                        <small class="text-secondary">
+                            @Model.LastRun.Total total · @Model.LastRun.DurationMs.ToString("F0")ms
+                        </small>
+                    </div>
+                    <div class="mt-2">
+                        <div class="progress" style="height:6px">
+                            @{
+                                var pct = Model.LastRun.Total > 0
+                                ? (int)((double)Model.LastRun.Passed / Model.LastRun.Total * 100)
+                                : 0;
+                            }
+                            <div class="progress-bar bg-success" style="width:@pct%"></div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Results -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span><i class="bi bi-list-check me-2"></i>Results</span>
+                @if (Model.LastRun is not null)
+                {
+                    <span class="badge @(Model.LastRun.Failed > 0 ? "bg-danger" : "bg-success")">
+                        @(Model.LastRun.Failed > 0 ? $"{Model.LastRun.Failed} failed" : "All passed")
+                    </span>
+                }
+            </div>
+            <div class="card-body p-0">
+                @if (Model.LastRun?.Results is { Count: > 0 } results)
+                {
+                    <div class="list-group list-group-flush">
+                        @foreach (var r in results)
+                        {
+                            <div class="list-group-item test-result-item">
+                                <div class="d-flex align-items-start gap-2">
+                                    <i class="bi @(r.Status == DevAssistant.Models.TestStatus.Passed
+                                        ? "bi-check-circle-fill text-success"
+                                        : r.Status == DevAssistant.Models.TestStatus.Failed
+                                            ? "bi-x-circle-fill text-danger"
+                                            : "bi-dash-circle text-warning") mt-1"></i>
+                                    <div class="flex-grow-1">
+                                        <div class="small fw-medium">@r.TestName</div>
+                                        <div class="smaller text-secondary">@r.ClassName</div>
+                                        @if (r.ErrorMessage is not null)
+                                        {
+                                            <pre class="test-error mt-1">@r.ErrorMessage</pre>
+                                        }
+                                    </div>
+                                    <small class="text-secondary text-nowrap">
+                                        @r.DurationMs.ToString("F0")ms
+                                    </small>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else if (Model.LastRun?.RawOutput is not null)
+                {
+                    <pre class="raw-output p-3">@Model.LastRun.RawOutput</pre>
+                }
+                else
+                {
+                    <div class="d-flex align-items-center justify-content-center p-5 text-secondary">
+                        <div class="text-center">
+                            <i class="bi bi-check2-square display-4 mb-3"></i>
+                            <p>Run tests to see results</p>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>

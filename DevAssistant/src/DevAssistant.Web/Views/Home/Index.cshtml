@@ -1,0 +1,130 @@
+﻿@model DevAssistant.Models.HealthStatus
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<div class="row g-4 mb-4">
+    <div class="col-sm-6 col-xl-3">
+        <div class="card stat-card @(Model.OllamaOnline ? "border-success" : "border-danger")">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="stat-label">Ollama</p>
+                        <h4 class="stat-value @(Model.OllamaOnline ? "text-success" : "text-danger")">
+                            @(Model.OllamaOnline ? "Online" : "Offline")
+                        </h4>
+                        @if (Model.OllamaModel is not null)
+                        {
+                            <small class="text-secondary">@Model.OllamaModel</small>
+                        }
+                    </div>
+                    <i class="bi bi-cpu stat-icon @(Model.OllamaOnline ? "text-success" : "text-danger")"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+        <div class="card stat-card @(Model.QdrantOnline ? "border-success" : "border-danger")">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="stat-label">Qdrant</p>
+                        <h4 class="stat-value @(Model.QdrantOnline ? "text-success" : "text-danger")">
+                            @(Model.QdrantOnline ? "Online" : "Offline")
+                        </h4>
+                        <small class="text-secondary">Vector DB</small>
+                    </div>
+                    <i class="bi bi-database stat-icon @(Model.QdrantOnline ? "text-success" : "text-danger")"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+        <div class="card stat-card border-info">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="stat-label">Memory Entries</p>
+                        <h4 class="stat-value text-info">@Model.MemoryEntryCount</h4>
+                        <small class="text-secondary">Stored facts</small>
+                    </div>
+                    <i class="bi bi-brain stat-icon text-info"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+        <div class="card stat-card border-primary">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="stat-label">Last Checked</p>
+                        <h4 class="stat-value text-primary" style="font-size:1.1rem">
+                            @Model.CheckedAt.ToString("HH:mm:ss")
+                        </h4>
+                        <small class="text-secondary">UTC</small>
+                    </div>
+                    <i class="bi bi-clock stat-icon text-primary"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick actions -->
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-lightning-charge me-2"></i>Quick Actions
+            </div>
+            <div class="card-body d-flex flex-wrap gap-2">
+                <a href="/Chat" class="btn btn-primary">
+                    <i class="bi bi-chat-dots me-1"></i>Open Chat
+                </a>
+                <a href="/Files" class="btn btn-outline-secondary">
+                    <i class="bi bi-folder2-open me-1"></i>Browse Files
+                </a>
+                <a href="/Tests" class="btn btn-outline-secondary">
+                    <i class="bi bi-play-circle me-1"></i>Run Tests
+                </a>
+                <a href="/Memory" class="btn btn-outline-secondary">
+                    <i class="bi bi-brain me-1"></i>View Memory
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-info-circle me-2"></i>Stack Info
+            </div>
+            <div class="card-body">
+                <table class="table table-sm table-borderless mb-0">
+                    <tbody>
+                        <tr>
+                            <td class="text-secondary">Runtime</td>
+                            <td>.NET 8 + Semantic Kernel</td>
+                        </tr>
+                        <tr>
+                            <td class="text-secondary">LLM</td>
+                            <td>@(Model.OllamaModel ?? "—") via Ollama</td>
+                        </tr>
+                        <tr>
+                            <td class="text-secondary">Vector DB</td>
+                            <td>Qdrant (local Docker)</td>
+                        </tr>
+                        <tr>
+                            <td class="text-secondary">Embeddings</td>
+                            <td>nomic-embed-text</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>

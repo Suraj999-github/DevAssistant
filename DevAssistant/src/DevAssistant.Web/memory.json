@@ -1,0 +1,23 @@
+[
+  {
+    "Id": "e099cc5c96eb49b083199f74f5b02037",
+    "Content": "The auth service uses JWT with 1h expiry and RS256 signing.",
+    "Collection": "default",
+    "CreatedAt": "2026-06-01T12:28:23.4206244Z",
+    "RelevanceScore": null
+  },
+  {
+    "Id": "d12791604a6e40f1806c3902e1ee172c",
+    "Content": "Qdrant is running on port 6333. Collection name is \u0027agent-memory\u0027.",
+    "Collection": "default",
+    "CreatedAt": "2026-06-01T12:28:33.9766044Z",
+    "RelevanceScore": null
+  },
+  {
+    "Id": "e88b2472f59e41e0aa66e6c019775005",
+    "Content": "Use dotnet test with --logger trx for structured test output. TRX files go to /tmp.",
+    "Collection": "default",
+    "CreatedAt": "2026-06-01T12:28:42.2944368Z",
+    "RelevanceScore": null
+  }
+]
