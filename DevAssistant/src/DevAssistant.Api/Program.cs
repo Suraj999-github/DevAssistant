@@ -1,5 +1,6 @@
 ﻿using DevAssistant.Api.Configuration;
 using DevAssistant.Api.Services;
+using DevAssistant.Services;
 using Serilog;
 using Serilog.Events;
 
@@ -16,9 +17,9 @@ builder.Services.AddSwaggerGen();
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Debug()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .MinimumLevel.Override("System.Net.Http", LogEventLevel.Warning)
     .Enrich.FromLogContext()
     .Enrich.WithThreadId()
-    .Enrich.WithMachineName()
     .WriteTo.Console(
         outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
     .CreateBootstrapLogger();
@@ -51,6 +52,10 @@ try
             services.Configure<AgentOptions>(
                 ctx.Configuration.GetSection(AgentOptions.SectionName));
 
+            // Register our services
+            services.AddSingleton<IKernelFactory, KernelFactory>();
+            services.AddSingleton<ILlmChatService, LlmChatService>();
+
             // Register a named HttpClient for Ollama health checks
             services.AddHttpClient("ollama", (sp, client) =>
             {
@@ -73,12 +78,19 @@ try
 
             // Register the startup health checker
             services.AddTransient<EnvironmentHealthChecker>();
+
+            // The demo runner
+            services.AddTransient<Step2Demo>();
         })
         .Build();
 
     // ─── Run the health check ─────────────────────────────────────────────────
     var checker = host.Services.GetRequiredService<EnvironmentHealthChecker>();
     await checker.RunAsync();
+
+    var demo = host.Services.GetRequiredService<Step2Demo>();
+    await demo.RunAsync();
+
 }
 catch (Exception ex)
 {
