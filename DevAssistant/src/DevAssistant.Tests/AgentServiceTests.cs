@@ -10,7 +10,7 @@ namespace DevAssistant.Tests
 {
     public class AgentServiceTests
     {
-        private readonly Mock<WebEnvironmentHealthChecker> _healthMock = new();
+        private readonly Mock<WebEnvironmentHealthChecker> _healthMock = new(); 
         private readonly Mock<ILlmChatService> _llmMock = new();
         private readonly Mock<IMemoryService> _memoryMock = new();
         private readonly Mock<IFileBrowserService> _filesMock = new();
