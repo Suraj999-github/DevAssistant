@@ -76,3 +76,7 @@ Testing/
 /DevAssistant/src/DevAssistant.Web/bin
 /DevAssistant/src/DevAssistant.Web/obj
 /DevAssistant/src/DevAssistant.Core/obj
+/DevAssistant/src/DevAssistant.Tests/bin
+/DevAssistant/src/DevAssistant.Tests/obj
+/DevAssistant/src/DevAssistant.Web/obj
+/DevAssistant/src/DevAssistant.Web/obj
