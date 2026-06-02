@@ -11,23 +11,57 @@ namespace DevAssistant.Services
 {
     public interface ITestRunnerService
     {
+        bool IsRunning { get; }
+        void CancelRun();
         Task<TestRunSummary> RunAsync(string? filter = null, CancellationToken ct = default);
     }
 
     public sealed class TestRunnerService : ITestRunnerService
     {
+        private readonly SemaphoreSlim _runLock = new(1, 1);
         private readonly IConfiguration _config;
         private readonly ILogger<TestRunnerService> _logger;
 
         private string TestProjectPath =>
             _config["TestRunner:ProjectPath"] ?? Directory.GetCurrentDirectory();
 
+        // Tracked so we can kill it from outside
+        private Process? _activeProcess;
+        private CancellationTokenSource? _activeCts;      
+
+        private int TimeoutSeconds =>
+            int.TryParse(_config["TestRunner:TimeoutSeconds"], out var t) ? t : 120;
+
+
         public TestRunnerService(IConfiguration config, ILogger<TestRunnerService> logger)
         {
             _config = config;
             _logger = logger;
         }
+        public bool IsRunning => _activeProcess is { HasExited: false };
 
+        // Call this from the controller / AgentService
+        public void CancelRun()
+        {
+            _activeCts?.Cancel();
+
+            var p = _activeProcess;
+            if (p is null || p.HasExited) return;
+
+            try
+            {
+                _logger.LogWarning("[TestRunner] Killing active test run PID={Pid}", p.Id);
+                p.Kill(entireProcessTree: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[TestRunner] Kill failed");
+            }
+            finally
+            {
+                KillOrphanedTestHosts();
+            }
+        }
         public async Task<TestRunSummary> RunAsync(
             string? filter = null, CancellationToken ct = default)
         {
@@ -193,6 +227,15 @@ namespace DevAssistant.Services
             }
 
             return new TestRunSummary(total, passed, failed, skipped, durationMs, failures, raw);
+        }
+        private static void KillOrphanedTestHosts()
+        {
+            foreach (var name in new[] { "testhost", "testhost.x86" })
+                foreach (var p in Process.GetProcessesByName(name))
+                {
+                    try { p.Kill(); p.Dispose(); }
+                    catch { /* already gone */ }
+                }
         }
     }
 }

@@ -29,6 +29,9 @@ namespace DevAssistant.Web.Services
         Task<bool> AddMemoryAsync(string content, CancellationToken ct = default);
         Task<bool> DeleteMemoryAsync(string id, CancellationToken ct = default);
 
+        bool IsTestRunning { get; }
+        void CancelTestRun();
+
     }
 
     public sealed class AgentService : IAgentService
@@ -54,7 +57,14 @@ namespace DevAssistant.Web.Services
             _tests = tests;
             _logger = logger;
         }
+        // AgentService — add:
+        public bool IsTestRunning => _tests.IsRunning;
 
+        public void CancelTestRun()
+        {
+            _logger.LogWarning("[AgentService] CancelTestRun called");
+            _tests.CancelRun();
+        }
         public Task<HealthReport> GetHealthAsync(CancellationToken ct = default)
             => _health.RunAsync(ct);
 

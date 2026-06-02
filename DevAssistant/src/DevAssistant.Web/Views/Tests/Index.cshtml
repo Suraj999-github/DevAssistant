@@ -118,3 +118,72 @@
         </div>
     </div>
 </div>
+<!-- Replace the static Run button section in Tests/Index.cshtml -->
+
+<form method="post" action="/Tests/Run" id="testForm">
+    <div class="mb-3">
+        <label class="form-label text-secondary small">Filter (optional)</label>
+        <input type="text" name="filter" class="form-control"
+               placeholder="ClassName.MethodName" />
+        <div class="form-text">Leave empty to run all tests</div>
+    </div>
+
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary flex-grow-1" id="runBtn">
+            <i class="bi bi-play-fill me-1"></i>Run
+        </button>
+        <button type="button" class="btn btn-danger" id="cancelBtn"
+                style="display:none" onclick="cancelRun()">
+            <i class="bi bi-stop-fill me-1"></i>Stop
+        </button>
+    </div>
+</form>
+
+@section Scripts {
+    <script>
+        const runBtn    = document.getElementById('runBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const testForm  = document.getElementById('testForm');
+
+        // Show/hide based on server state on page load
+        checkStatus();
+
+        testForm.addEventListener('submit', () => {
+            setRunning(true);
+        });
+
+        function setRunning(running) {
+            runBtn.disabled  = running;
+            runBtn.innerHTML = running
+                ? '<span class="spinner-border spinner-border-sm me-1"></span>Running...'
+                : '<i class="bi bi-play-fill me-1"></i>Run';
+            cancelBtn.style.display = running ? 'inline-flex' : 'none';
+        }
+
+        async function cancelRun() {
+            cancelBtn.disabled = true;
+            cancelBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Stopping...';
+
+            try {
+                await fetch('/Tests/Cancel', { method: 'POST' });
+            } finally {
+                // Brief delay then reload to show the cancelled result
+                setTimeout(() => window.location.reload(), 800);
+            }
+        }
+
+        async function checkStatus() {
+            try {
+                const res  = await fetch('/Tests/Status');
+                const data = await res.json();
+                setRunning(data.isRunning);
+
+                // Poll every 2s while running
+                if (data.isRunning)
+                    setTimeout(checkStatus, 2000);
+            } catch {
+                // ignore network errors during poll
+            }
+        }
+    </script>
+}
