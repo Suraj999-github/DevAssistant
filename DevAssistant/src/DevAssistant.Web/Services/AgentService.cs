@@ -42,6 +42,7 @@ namespace DevAssistant.Web.Services
         private readonly IMemoryService _memory;
         private readonly IFileBrowserService _files;
         private readonly ITestRunnerService _tests;
+        private readonly ChatHistory _history = new();
         public AgentService(
             WebEnvironmentHealthChecker health,
             ILlmChatService llm,
@@ -79,15 +80,25 @@ namespace DevAssistant.Web.Services
             // Step 8 will add true token-by-token streaming with a custom sink.
             _logger.LogInformation("[AgentService] Chat: {Msg}", message);
 
-            var history = new ChatHistory();
-            var response = await _llm.StreamChatAsync(message, systemPrompt, history, ct);
+            //var history = new ChatHistory();
+            //var response = await _llm.StreamChatAsync(message, systemPrompt, history, ct);
 
-            // Yield in ~50-char chunks to simulate streaming in the browser
+            //// Yield in ~50-char chunks to simulate streaming in the browser
+            //for (var i = 0; i < response.Length; i += 50)
+            //{
+            //    ct.ThrowIfCancellationRequested();
+            //    yield return response[i..Math.Min(i + 50, response.Length)];
+            //    await Task.Delay(10, ct); // small delay for visible streaming effect
+            //}
+
+            // Use the persistent history — LLM remembers context across turns
+            var response = await _llm.StreamChatAsync(message, systemPrompt, _history, ct);
+
             for (var i = 0; i < response.Length; i += 50)
             {
                 ct.ThrowIfCancellationRequested();
                 yield return response[i..Math.Min(i + 50, response.Length)];
-                await Task.Delay(10, ct); // small delay for visible streaming effect
+                await Task.Delay(10, ct);
             }
         }
 

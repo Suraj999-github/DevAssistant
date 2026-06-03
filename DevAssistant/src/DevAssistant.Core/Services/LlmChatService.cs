@@ -1,4 +1,5 @@
-﻿using DevAssistant.Configuration;
+﻿#pragma warning disable SKEXP0070
+using DevAssistant.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
@@ -40,8 +41,12 @@ namespace DevAssistant.Services
 
         // System prompt used for all Step-2 interactions
         private const string DefaultSystemPrompt =
-            "You are a senior .NET developer assistant. " +
-            "Be concise, precise, and always prefer working C# code over explanation alone.";
+      "You are a senior .NET developer assistant. " +
+      "You have tools available to read files from the workspace. " +
+      "When the user asks about a file, ALWAYS use the ReadFile tool " +
+      "to get the actual content before answering. " +
+      "Never guess or fabricate file contents. " +
+      "Be concise and precise.";
 
         public LlmChatService(
             IKernelFactory kernelFactory,
@@ -72,16 +77,22 @@ namespace DevAssistant.Services
             }
 
             history.AddUserMessage(userMessage);
+           // LogOutboundRequest(history);
 
             // ── 2. Log the exact request we're about to send ────────────────────
             LogLlmRequest(history);
 
             // ── 3. Configure execution settings ─────────────────────────────────
+            // This tells SK to:
+            //   1. Send tool definitions to Ollama with every request
+            //   2. When Ollama returns a tool_call, invoke the C# method automatically
+            //   3. Send the tool result back to Ollama
+            //   4. Repeat until Ollama returns a plain text response
             var executionSettings = new OpenAIPromptExecutionSettings
             {
-                Temperature = 0.7,
+                Temperature = 0.7f,
                 MaxTokens = 2048,
-
+                ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
                 /*
                  * ToolCallBehavior.AutoInvokeKernelFunctions will be set in Step 4
                  * when we add tools. For now, no tools → pure completion.
@@ -212,6 +223,18 @@ namespace DevAssistant.Services
             sb.AppendLine("  ]");
             sb.Append("}");
 
+            _logger.LogDebug(sb.ToString());
+        }
+        private void LogOutboundRequest(ChatHistory history)
+        {
+            if (!_logger.IsEnabled(LogLevel.Debug)) return;
+            var sb = new StringBuilder("[LLM] Outbound:\n");
+            foreach (var m in history)
+            {
+                var preview = m.Content?.Length > 80
+                    ? m.Content[..80] + "…" : m.Content;
+                sb.AppendLine($"  [{m.Role}] {preview}");
+            }
             _logger.LogDebug(sb.ToString());
         }
     }

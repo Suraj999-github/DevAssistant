@@ -13,8 +13,15 @@
         public string WorkingDirectory { get; init; } = "./workspace";
         public bool StreamingEnabled { get; init; } = true;
 
-        // Derived — computed at startup
-        public Uri OllamaUri => new(OllamaEndpoint);
-        public Uri QdrantUri => new(QdrantEndpoint);
+        // ── Derived URIs ──────────────────────────────────────────────────────────
+
+        // Used by health checker → /api/tags, /api/version
+        public Uri OllamaUri => new(OllamaEndpoint.TrimEnd('/'));
+
+        // Used by OpenAI connector in KernelFactory → appends /v1/chat/completions
+        public Uri OllamaOpenAiUri => new(OllamaEndpoint.TrimEnd('/') + "/v1/");
+
+        // Used by Qdrant health checker → /healthz
+        public Uri QdrantUri => new(QdrantEndpoint.TrimEnd('/'));
     }
 }

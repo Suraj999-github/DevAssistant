@@ -1,5 +1,6 @@
 ﻿using DevAssistant.Api.Services;
 using DevAssistant.Configuration;
+using DevAssistant.Core.Plugins;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -47,6 +48,8 @@ namespace DevAssistant.Services
             services.AddScoped<IFileBrowserService, FileBrowserService>();
             services.AddScoped<ITestRunnerService, TestRunnerService>();
             services.AddSingleton<IMemoryService, MemoryService>(); // singleton owns the file lock
+            services.AddTransient<FilePlugin>();         
+          
 
             return services;
         }

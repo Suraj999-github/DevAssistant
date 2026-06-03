@@ -1,7 +1,9 @@
 ﻿#pragma warning disable SKEXP0010
 #pragma warning disable SKEXP0001
+#pragma warning disable SKEXP0070
 
 using DevAssistant.Configuration;
+using DevAssistant.Core.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -18,73 +20,24 @@ namespace DevAssistant.Services
     {
         Kernel CreateKernel();
     }
-
-    //public sealed class KernelFactory : IKernelFactory
-    //{
-    //    private readonly AgentOptions _options;
-    //    private readonly ILoggerFactory _loggerFactory;
-    //    private readonly ILogger<KernelFactory> _logger;
-
-    //    public KernelFactory(
-    //        IOptions<AgentOptions> options,
-    //        ILoggerFactory loggerFactory,
-    //        ILogger<KernelFactory> logger)
-    //    {
-    //        _options = options.Value;
-    //        _loggerFactory = loggerFactory;
-    //        _logger = logger;
-    //    }
-
-    //    public Kernel CreateKernel()
-    //    {
-    //        _logger.LogInformation(
-    //            "Building Semantic Kernel — Model: {ModelId}, Endpoint: {Endpoint}",
-    //            _options.ModelId, _options.OllamaEndpoint);
-
-    //        var builder = Kernel.CreateBuilder();
-
-    //        // ── Chat Completion (Mistral via Ollama) ─────────────────────────────
-    //        // Signature: modelId, apiKey, endpoint (Uri), orgId, serviceId, httpClient
-    //        builder.AddOpenAIChatCompletion(
-    //            modelId: _options.ModelId,
-    //            apiKey: "ollama",
-    //            endpoint: _options.OllamaUri);
-
-    //        // ── Text Embedding (nomic-embed-text via Ollama) ─────────────────────
-    //        // Signature differs from chat — use the HttpClient overload to set base URL
-
-    //        var ollamaClient = new HttpClient
-    //        {
-    //            BaseAddress = _options.OllamaUri
-    //        };
-
-    //        builder.AddOpenAITextEmbeddingGeneration(
-    //            modelId: _options.EmbeddingModelId,
-    //            apiKey: "ollama",
-    //            httpClient: ollamaClient);
-
-    //        builder.Services.AddSingleton(_loggerFactory);
-
-    //        var kernel = builder.Build();
-
-    //        _logger.LogInformation("Kernel built successfully");
-    //        return kernel;
-    //    }
-    //}
+ 
     public sealed class KernelFactory : IKernelFactory
     {
         private readonly AgentOptions _options;
         private readonly ILoggerFactory _loggerFactory;
         private readonly ILogger<KernelFactory> _logger;
+        private readonly IServiceProvider _services;
 
         public KernelFactory(
             IOptions<AgentOptions> options,
             ILoggerFactory loggerFactory,
-            ILogger<KernelFactory> logger)
+            ILogger<KernelFactory> logger,
+            IServiceProvider services)
         {
             _options = options.Value;
             _loggerFactory = loggerFactory;
             _logger = logger;
+            _services = services;
         }
 
         public Kernel CreateKernel()
@@ -94,22 +47,7 @@ namespace DevAssistant.Services
                 _options.ModelId, _options.OllamaEndpoint);
 
             var builder = Kernel.CreateBuilder();
-
-            // ── Approach A: Use OllamaApiClient (recommended for SK 1.21+) ───────
-            // This is the cleanest path — no endpoint URL confusion at all.
-            // Requires: dotnet add package Microsoft.SemanticKernel.Connectors.Ollama
-            //
-            // builder.AddOllamaChatCompletion(
-            //     modelId: _options.ModelId,
-            //     endpoint: _options.OllamaUri);
-            //
-            // builder.AddOllamaTextEmbeddingGeneration(
-            //     modelId: _options.EmbeddingModelId,
-            //     endpoint: _options.OllamaUri);
-
-            // ── Approach B: OpenAI connector with explicit HttpClient ────────────
-            // Forces the base URL so SK never guesses the path.
-            // The trailing slash on BaseAddress is required by HttpClient routing rules.
+          
             var ollamaHttpClient = new HttpClient
             {
                 BaseAddress = new Uri(_options.OllamaEndpoint.TrimEnd('/') + "/"),
@@ -138,6 +76,28 @@ namespace DevAssistant.Services
             builder.Services.AddSingleton(_loggerFactory);
 
             var kernel = builder.Build();
+
+            // ── Register all plugins so LLM can call them ─────────────────────────
+            kernel.RegisterAgentPlugins(_services);
+
+            // In KernelFactory.CreateKernel() after RegisterAgentPlugins:
+            foreach (var plugin in kernel.Plugins)
+            {
+                foreach (var fn in plugin)
+                {
+                    _logger.LogInformation("=======================================================================");
+                    _logger.LogInformation("=======================================================================");
+
+                    _logger.LogInformation(
+                        "  Tool registered: {Plugin}-{Function} — {Description}",
+                        plugin.Name, fn.Name, fn.Description);
+
+                    _logger.LogInformation("=======================================================================");
+                    _logger.LogInformation("=======================================================================");
+
+                }
+            }
+
             _logger.LogInformation("Kernel built successfully");
             return kernel;
         }

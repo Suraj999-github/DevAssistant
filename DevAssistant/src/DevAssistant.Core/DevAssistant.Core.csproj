@@ -19,14 +19,11 @@
 		<PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
 
-		<PackageReference Include="Microsoft.SemanticKernel"
-						  Version="1.21.1" />
+		<PackageReference Include="Microsoft.SemanticKernel" Version="1.21.1" />
 
-		<PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI"
-						  Version="1.21.1" />
+		<PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.21.1" />
 
-		<PackageReference Include="Microsoft.SemanticKernel.Connectors.Qdrant"
-						  Version="1.21.1-alpha" />
+		<PackageReference Include="Microsoft.SemanticKernel.Connectors.Qdrant" Version="1.21.1-alpha" />
 
 		<PackageReference Include="ModelContextProtocol" Version="0.1.0-preview.10" />
 		<PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="8.0.0" />
@@ -42,6 +39,10 @@
 		<None Update="appsettings.Development.json">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</None>
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="Infrastructure\" />
 	</ItemGroup>
 
 </Project>

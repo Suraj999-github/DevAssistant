@@ -99,6 +99,30 @@ namespace DevAssistant.Services
         }
 
         // ── Workspace directory ───────────────────────────────────────────────────
+        //private bool CheckWorkspace()
+        //{
+        //    try
+        //    {
+        //        var path = Path.GetFullPath(_options.WorkingDirectory);
+        //        if (!Directory.Exists(path))
+        //            Directory.CreateDirectory(path);
+
+        //        var test = Path.Combine(path, ".write-test");
+        //        File.WriteAllText(test, "ok");
+        //        File.Delete(test);
+
+        //        _logger.LogInformation("[Workspace] Ready at {Path}", path);
+        //        return true;
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogError(ex, "[Workspace] Not writable");
+        //        return false;
+        //    }
+        //}
+        // src/DevAssistant.Core/Services/WebEnvironmentHealthChecker.cs
+        // Replace your CheckWorkspace() method:
+
         private bool CheckWorkspace()
         {
             try
@@ -107,9 +131,12 @@ namespace DevAssistant.Services
                 if (!Directory.Exists(path))
                     Directory.CreateDirectory(path);
 
-                var test = Path.Combine(path, ".write-test");
-                File.WriteAllText(test, "ok");
-                File.Delete(test);
+                // Use a unique filename per process to avoid cross-process lock conflicts
+                // when Api and Web both run simultaneously and check the same workspace
+                var testFile = Path.Combine(path, $".write-test-{Environment.ProcessId}");
+
+                File.WriteAllText(testFile, "ok");
+                File.Delete(testFile);
 
                 _logger.LogInformation("[Workspace] Ready at {Path}", path);
                 return true;
@@ -120,7 +147,6 @@ namespace DevAssistant.Services
                 return false;
             }
         }
-
         private void LogSummary(HealthReport r)
         {
             _logger.LogInformation("── Health Summary ──────────────────────");

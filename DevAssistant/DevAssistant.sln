@@ -11,7 +11,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DevAssistant.Web", "src\Dev
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DevAssistant.Core", "src\DevAssistant.Core\DevAssistant.Core.csproj", "{38440274-C086-40B4-A478-725FFC088440}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DevAssistant.Tests", "src\DevAssistant.Tests\DevAssistant.Tests.csproj", "{733DA12E-25F8-459D-88C1-0473B7477849}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DevAssistant.Tests", "src\DevAssistant.Tests\DevAssistant.Tests.csproj", "{733DA12E-25F8-459D-88C1-0473B7477849}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
