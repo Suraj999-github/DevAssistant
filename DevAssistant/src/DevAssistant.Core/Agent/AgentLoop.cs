@@ -1,4 +1,6 @@
 ﻿#pragma warning disable SKEXP0070
+
+using DevAssistant.Agent;
 using DevAssistant.Configuration;
 using DevAssistant.Services;
 using Microsoft.Extensions.Logging;
@@ -7,357 +9,452 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using System.Diagnostics;
-using System.Text.Json;
+using System.Text;
 
-namespace DevAssistant.Agent
+namespace DevAssistant.Core.Agent;
+public sealed record AgentLoopProgress(
+    int Iteration,
+    string Phase,        // "thinking" | "calling" | "observing" | "complete"
+    string? ToolName = null,
+    string? ToolArgs = null,
+    string? Message = null);
+public interface IAgentLoop
 {
-    /// <summary>Progress updates streamed back to the UI during execution.</summary>
-    public sealed record AgentLoopProgress(
-        int Iteration,
-        string Phase,        // "thinking" | "calling" | "observing" | "complete"
-        string? ToolName = null,
-        string? ToolArgs = null,
-        string? Message = null);
-    public interface IAgentLoop
-    {
-        /// <summary>
-        /// Runs the full think→tool→observe loop until the LLM
-        /// produces a final text response or the guard conditions trigger.
-        /// </summary>
-        Task<AgentExecutionResult> RunAsync(
-            string userMessage,
-            ChatHistory history,
-            AgentLoopOptions? options = null,
-            IProgress<AgentLoopProgress>? progress = null,
-            CancellationToken ct = default);
-    }
-    public sealed class AgentLoop : IAgentLoop
-    {
-        private readonly Kernel _kernel;
-        private readonly ILogger<AgentLoop> _logger;
-        private readonly AgentOptions _agentOptions;
+    Task<AgentExecutionResult> RunAsync(
+        string userMessage,
+        ChatHistory history,
+        AgentLoopOptions? options = null,
+        IProgress<AgentLoopProgress>? progress = null,
+        CancellationToken ct = default);
+}
 
-        private static readonly JsonSerializerOptions _jsonOpts = new()
+public sealed class AgentLoop : IAgentLoop
+{
+    private readonly IKernelFactory _kernelFactory;
+    private readonly AgentOptions _agentOptions;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILogger<AgentLoop> _logger;
+
+    public AgentLoop(
+        IKernelFactory kernelFactory,
+        IOptions<AgentOptions> agentOptions,
+        ILoggerFactory loggerFactory,
+        ILogger<AgentLoop> logger)
+    {
+        _kernelFactory = kernelFactory;
+        _agentOptions = agentOptions.Value;
+        _loggerFactory = loggerFactory;
+        _logger = logger;
+    }
+
+    public async Task<AgentExecutionResult> RunAsync(
+        string userMessage,
+        ChatHistory history,
+        AgentLoopOptions? options = null,
+        IProgress<AgentLoopProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        options ??= new AgentLoopOptions
         {
-            WriteIndented = true
+            MaxIterations = _agentOptions.MaxIterations
         };
 
-        public AgentLoop(
-            IKernelFactory kernelFactory,
-            IOptions<AgentOptions> agentOptions,
-            ILogger<AgentLoop> logger)
+        // ── State ─────────────────────────────────────────────────────────────
+        var toolCalls = new List<ToolCallRecord>();
+        var loopSw = Stopwatch.StartNew();
+        var iteration = 0;
+        var stopReason = "Unknown";
+        var finalResponse = string.Empty;
+
+        // Collects the last meaningful content seen — used as fallback response
+        var lastSeenContent = string.Empty;
+        var lastException = string.Empty;
+
+        // ── Kernel + per-loop filter ──────────────────────────────────────────
+        var filter = new ToolCallLoggingFilter(toolCalls, _loggerFactory);
+        var kernel = _kernelFactory.CreateKernel();
+        kernel.FunctionInvocationFilters.Clear();
+        kernel.FunctionInvocationFilters.Add(filter);
+
+        _logger.LogInformation(
+            "[AgentLoop] Setup | Filters: {F} | Plugins: {P} | Tools: {T} | Model: {M}",
+            kernel.FunctionInvocationFilters.Count,
+            kernel.Plugins.Count(),
+            kernel.Plugins.SelectMany(p => p).Count(),
+            _agentOptions.ModelId);
+
+        // ── Seed history ──────────────────────────────────────────────────────
+        if (history.Count == 0)
         {
-            _kernel = kernelFactory.CreateKernel();
-            _agentOptions = agentOptions.Value;
-            _logger = logger;
+            history.AddSystemMessage(BuildSystemPrompt());
         }
+        history.AddUserMessage(userMessage);
 
-        public async Task<AgentExecutionResult> RunAsync(
-            string userMessage,
-            ChatHistory history,
-            AgentLoopOptions? options = null,
-            IProgress<AgentLoopProgress>? progress = null,
-            CancellationToken ct = default)
+        _logger.LogInformation(
+            "[AgentLoop] ═══ Starting ═══ MaxIterations: {Max} | MaxDuration: {Dur}",
+            options.MaxIterations, options.MaxDuration);
+
+        // ── Duration guard — independent of caller token ──────────────────────
+        using var loopCts = new CancellationTokenSource(options.MaxDuration);
+
+        var chatService = kernel.GetRequiredService<IChatCompletionService>();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // MAIN LOOP
+        // ══════════════════════════════════════════════════════════════════════
+        try
         {
-            options ??= new AgentLoopOptions
-            {
-                MaxIterations = _agentOptions.MaxIterations
-            };
-
-            var toolCalls = new List<ToolCallRecord>();
-            var loopSw = Stopwatch.StartNew();
-            var iteration = 0;
-            var stopReason = "MaxResponse";
-
-            // ── Seed history if empty ─────────────────────────────────────────────
-            if (history.Count == 0)
-            {
-                history.AddSystemMessage(BuildSystemPrompt());
-                _logger.LogDebug("[AgentLoop] System prompt added to history");
-            }
-
-            history.AddUserMessage(userMessage);
-
-            _logger.LogInformation(
-                "[AgentLoop] ═══ Starting loop ═══ " +
-                "MaxIterations: {Max} | MaxDuration: {Dur} | User: {Msg}",
-                options.MaxIterations, options.MaxDuration, userMessage);
-
-            // ── Guard: total duration timeout ─────────────────────────────────────
-            using var durationCts = new CancellationTokenSource(options.MaxDuration);
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                ct, durationCts.Token);
-
-            var chatService = _kernel.GetRequiredService<IChatCompletionService>();
-            string finalResponse = string.Empty;
-
-            // ══════════════════════════════════════════════════════════════════════
-            // THE LOOP
-            // ══════════════════════════════════════════════════════════════════════
             while (iteration < options.MaxIterations)
             {
                 iteration++;
+                filter.SetIteration(iteration);
 
                 _logger.LogInformation(
-                    "[AgentLoop] ── Iteration {I}/{Max} ──────────────────────",
-                    iteration, options.MaxIterations);
+                    "[AgentLoop] ── Iteration {I}/{Max} | ToolCalls so far: {T} ──",
+                    iteration, options.MaxIterations, toolCalls.Count);
 
-                // ── PHASE 1: THINK ────────────────────────────────────────────────
                 progress?.Report(new AgentLoopProgress(
                     iteration, "thinking",
-                    Message: $"Thinking... (iteration {iteration}/{options.MaxIterations})"));
+                    Message: $"Thinking... ({iteration}/{options.MaxIterations})"));
 
-                _logger.LogInformation("[AgentLoop] Phase: THINK");
-                LogChatHistory(history, $"Before iteration {iteration}");
-
-                //var settings = new OllamaPromptExecutionSettings
-                //{
-                //    Temperature = 0.3f,
-                //    MaxTokens = 2048,
-                //    ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
-                //};
-                // ✓ REPLACE WITH:
                 var settings = new OpenAIPromptExecutionSettings
                 {
-                    Temperature = 0.3,
-                    MaxTokens = 2048,
+                    Temperature = 0.1,
+                    MaxTokens = 800,
                     ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
                 };
 
-                // ── PHASE 2: CALL (SK handles this automatically) ─────────────────
-                // SK sends history + tool definitions to Ollama.
-                // If Ollama returns tool_calls, SK invokes them and appends results.
-                // We get back the FINAL text response after all tool calls resolve.
-                var iterSw = Stopwatch.StartNew();
+                // Per-iteration timeout — prevents one call hanging forever
+                using var iterCts = new CancellationTokenSource(TimeSpan.FromMinutes(4));
+                using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    loopCts.Token, iterCts.Token);
 
+                var iterSw = Stopwatch.StartNew();
                 ChatMessageContent response;
+
                 try
                 {
-                    // Register a filter to intercept tool calls before/after execution
-                    // This lets us record every tool call for the audit trail
-                    var filterKernel = _kernel;
-                    var callRecorder = new ToolCallRecorder(iteration, toolCalls, _logger, progress);
-
-                    // Use InvokePromptAsync for single-shot with auto tool invocation
-                    // This handles the full think→call→observe internally per iteration
                     var results = await chatService.GetChatMessageContentsAsync(
                         history,
                         executionSettings: settings,
-                        kernel: filterKernel,
-                        cancellationToken: linkedCts.Token);
+                        kernel: kernel,
+                        cancellationToken: combinedCts.Token);
 
                     iterSw.Stop();
                     response = results.Last();
+
+                    // Log raw response for diagnostics
+                    _logger.LogInformation(
+                        "[AgentLoop] RAW | Role: {Role} | ContentLen: {Len} | " +
+                        "Items: {Items} | ToolCallsRecorded: {T} | IterMs: {Ms}",
+                        response.Role,
+                        response.Content?.Length ?? 0,
+                        response.Items?.Count ?? 0,
+                        toolCalls.Count,
+                        iterSw.ElapsedMilliseconds);
+
+                    if (!string.IsNullOrWhiteSpace(response.Content))
+                        lastSeenContent = response.Content;
                 }
-                catch (OperationCanceledException) when (durationCts.IsCancellationRequested)
+                catch (Exception ex) when (IsTimeout(ex, loopCts, iterCts))
                 {
-                    stopReason = "DurationTimeout";
+                    iterSw.Stop();
+                    stopReason = loopCts.IsCancellationRequested
+                        ? "DurationTimeout" : "IterationTimeout";
+                    lastException = $"Timeout after {iterSw.ElapsedMilliseconds}ms on iteration {iteration}";
+
                     _logger.LogWarning(
-                        "[AgentLoop] Duration timeout after {Dur}", loopSw.Elapsed);
-                    break;
-                }
-                catch (OperationCanceledException)
-                {
-                    stopReason = "UserCancelled";
-                    _logger.LogInformation("[AgentLoop] Cancelled by user");
+                        "[AgentLoop] ⏱ {Reason} on iteration {I} after {Ms}ms",
+                        stopReason, iteration, iterSw.ElapsedMilliseconds);
                     break;
                 }
                 catch (Exception ex)
                 {
+                    iterSw.Stop();
                     stopReason = "Error";
-                    _logger.LogError(ex, "[AgentLoop] Error on iteration {I}", iteration);
+                    lastException = $"{ex.GetType().Name}: {ex.Message}";
 
-                    return new AgentExecutionResult(
-                        Success: false,
-                        FinalResponse: $"Agent error on iteration {iteration}: {ex.Message}",
-                        IterationsUsed: iteration,
-                        Duration: loopSw.Elapsed,
-                        ToolCalls: toolCalls,
-                        StopReason: "Error",
-                        Error: ex.Message);
+                    _logger.LogError(ex,
+                        "[AgentLoop] ✗ Error on iteration {I} after {Ms}ms",
+                        iteration, iterSw.ElapsedMilliseconds);
+                    break;  // ← break not return — we still build a response below
                 }
 
-                iterSw.Stop();
-
-                // ── PHASE 3: OBSERVE ──────────────────────────────────────────────
-                progress?.Report(new AgentLoopProgress(
-                    iteration, "observing",
-                    Message: response.Content?.Length > 0
-                        ? $"Got response ({response.Content.Length} chars)"
-                        : "Tool call executed"));
-
-                _logger.LogInformation(
-                    "[AgentLoop] Phase: OBSERVE | Role: {Role} | " +
-                    "ContentLength: {Len} | IterMs: {Ms}",
-                    response.Role,
-                    response.Content?.Length ?? 0,
-                    iterSw.ElapsedMilliseconds);
-
-                // Add response to history
+                // ── Add to history ────────────────────────────────────────────
                 history.Add(response);
 
-                // ── CHECK: Is this a final text response? ─────────────────────────
-                // If the response has content and no pending tool calls,
-                // the LLM is done — exit the loop.
+                progress?.Report(new AgentLoopProgress(
+                    iteration, "observing",
+                    Message: $"Processing response ({response.Content?.Length ?? 0} chars)"));
+
+                // ── Check for final text response ─────────────────────────────
                 if (!string.IsNullOrWhiteSpace(response.Content))
                 {
+                    var guardResult = CheckHallucinationGuards(
+                        response.Content, toolCalls, history, iteration);
+
+                    if (guardResult.ShouldContinue)
+                    {
+                        _logger.LogWarning(
+                            "[AgentLoop] ⚠ Guard {G} triggered — forcing next iteration",
+                            guardResult.GuardName);
+                        continue;
+                    }
+
+                    // All guards passed — accept as final
                     finalResponse = response.Content;
                     stopReason = "FinalResponse";
-
                     _logger.LogInformation(
-                        "[AgentLoop] ✓ Final response received on iteration {I}. " +
-                        "Length: {Len}", iteration, finalResponse.Length);
+                        "[AgentLoop] ✓ Final response accepted on iteration {I}",
+                        iteration);
                     break;
                 }
 
-                // ── GUARD: If no content and no tool calls, something is wrong ────
-                if (response.Content is null || response.Content.Length == 0)
-                {
-                    _logger.LogWarning(
-                        "[AgentLoop] Empty response on iteration {I} — " +
-                        "LLM returned neither text nor tool call. Breaking.",
-                        iteration);
-                    stopReason = "EmptyResponse";
-                    break;
-                }
+                // Empty content = tool calls executed, loop naturally continues
+                _logger.LogDebug(
+                    "[AgentLoop] Empty content on iteration {I} — " +
+                    "{T} tool calls executed, continuing",
+                    iteration, toolCalls.Count);
             }
 
-            // ── Max iterations hit ────────────────────────────────────────────────
+            // Max iterations hit
             if (iteration >= options.MaxIterations && string.IsNullOrEmpty(finalResponse))
             {
                 stopReason = "MaxIterationsReached";
-                finalResponse = $"Agent reached maximum iterations ({options.MaxIterations}) " +
-                                $"without completing. Last tool calls: " +
-                                $"{string.Join(", ", toolCalls.TakeLast(3).Select(t => t.FunctionName))}. " +
-                                $"Try a more specific request.";
-
                 _logger.LogWarning(
-                    "[AgentLoop] Max iterations {Max} reached without final response",
-                    options.MaxIterations);
+                    "[AgentLoop] Max iterations {Max} reached", options.MaxIterations);
             }
-
+        }
+        catch (Exception ex)
+        {
+            // Outermost catch — should never reach here but just in case
+            stopReason = "UnhandledError";
+            lastException = ex.Message;
+            _logger.LogError(ex, "[AgentLoop] Unhandled error in loop");
+        }
+        finally
+        {
             loopSw.Stop();
-
-            // ── Final summary log ─────────────────────────────────────────────────
-            _logger.LogInformation(
-                "[AgentLoop] ═══ Complete ═══ " +
-                "Iterations: {I} | ToolCalls: {T} | Duration: {D}ms | Stop: {S}",
-                iteration,
-                toolCalls.Count,
-                loopSw.ElapsedMilliseconds,
-                stopReason);
-
-            LogChatHistory(history, "Final History");
-
-            progress?.Report(new AgentLoopProgress(
-                iteration, "complete", Message: finalResponse));
-
-            return new AgentExecutionResult(
-                Success: stopReason == "FinalResponse",
-                FinalResponse: finalResponse,
-                IterationsUsed: iteration,
-                Duration: loopSw.Elapsed,
-                ToolCalls: toolCalls,
-                StopReason: stopReason);
         }
 
-        // ── Helpers ───────────────────────────────────────────────────────────────
-        private static string BuildSystemPrompt() =>
-             """
-             You are a senior .NET developer assistant with access to file and test tools.
-
-             AVAILABLE TOOLS:
-             - ListFiles(path)       → see what files exist in a directory
-             - ReadFile(path)        → read the content of a specific file
-             - WriteFile(path, content) → save fixed code back to disk
-             - RunTests(filter?)     → run dotnet tests and see which fail
-             - GetTestFailureDetails(testName) → deep dive on one failing test
-
-             CHAIN OF THOUGHT RULES — always follow this order:
-             1. If you don't know what files exist → call ListFiles FIRST
-             2. If asked about code → call ReadFile before answering
-             3. If asked to fix bugs → call RunTests FIRST to see what fails
-             4. After reading failing tests → call ReadFile on the failing source file
-             5. After writing a fix → call RunTests again to confirm fix works
-             6. NEVER guess file content — always read it first
-             7. NEVER fabricate test output — always run tests to get real results
-             8. When all tests pass → give a clear summary of what you fixed
-
-             RESPONSE FORMAT after completing work:
-             - State what was broken (with test names)
-             - State what you changed (file + line)
-             - Confirm tests now pass
-             """;
-
-        private void LogChatHistory(ChatHistory history, string label)
+        // ══════════════════════════════════════════════════════════════════════
+        // BUILD FINAL RESPONSE — every exit path lands here
+        // ══════════════════════════════════════════════════════════════════════
+        if (string.IsNullOrEmpty(finalResponse))
         {
-            if (!_logger.IsEnabled(LogLevel.Debug)) return;
+            finalResponse = BuildFallbackResponse(
+                stopReason, iteration, options.MaxIterations,
+                toolCalls, lastSeenContent, lastException, loopSw.Elapsed);
+        }
 
-            _logger.LogDebug("[AgentLoop] ── ChatHistory: {Label} ({N} messages) ──",
-                label, history.Count);
+        // ── Audit log ─────────────────────────────────────────────────────────
+        _logger.LogInformation(
+            "[AgentLoop] ═══ Complete ═══ " +
+            "Iterations: {I} | ToolCalls: {T} | Duration: {D}ms | Stop: {S}",
+            iteration, toolCalls.Count, loopSw.ElapsedMilliseconds, stopReason);
 
-            for (var i = 0; i < history.Count; i++)
+        for (var i = 0; i < toolCalls.Count; i++)
+        {
+            var tc = toolCalls[i];
+            _logger.LogInformation(
+                "  [{I:00}] Iter{Iter} {Plugin}.{Fn} | Ok:{Ok} | {Ms}ms",
+                i, tc.Iteration, tc.PluginName, tc.FunctionName,
+                tc.Succeeded, tc.DurationMs);
+        }
+
+        var result = new AgentExecutionResult(
+            Success: stopReason == "FinalResponse",
+            FinalResponse: finalResponse,
+            IterationsUsed: iteration,
+            Duration: loopSw.Elapsed,
+            ToolCalls: toolCalls,
+            StopReason: stopReason);
+
+        _logger.LogInformation(
+            "[AgentLoop] Result: Success={S} | Stop={R} | ResponseLen={L}",
+            result.Success, result.StopReason, result.FinalResponse.Length);
+
+        progress?.Report(new AgentLoopProgress(
+            iteration, "complete", Message: finalResponse));
+
+        return result;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // FALLBACK RESPONSE BUILDER
+    // Every non-success exit produces a human-readable UI message
+    // ══════════════════════════════════════════════════════════════════════════
+    private static string BuildFallbackResponse(
+        string stopReason,
+        int iteration,
+        int maxIterations,
+        List<ToolCallRecord> toolCalls,
+        string lastSeenContent,
+        string lastException,
+        TimeSpan elapsed)
+    {
+        var sb = new StringBuilder();
+
+        // ── Header ────────────────────────────────────────────────────────────
+        sb.AppendLine(stopReason switch
+        {
+            "DurationTimeout" => "⏱ **Agent timed out** — the operation took too long.",
+            "IterationTimeout" => "⏱ **Iteration timed out** — one LLM call exceeded the time limit.",
+            "MaxIterationsReached" => $"🔄 **Max iterations reached** ({maxIterations}) without completing.",
+            "Error" => "❌ **Agent encountered an error.**",
+            "UnhandledError" => "❌ **Unexpected agent error.**",
+            "UserCancelled" => "🛑 **Request was cancelled.**",
+            _ => "⚠ **Agent stopped unexpectedly.**"
+        });
+
+        sb.AppendLine();
+
+        // ── What was accomplished ─────────────────────────────────────────────
+        if (toolCalls.Count > 0)
+        {
+            sb.AppendLine("**What was completed before stopping:**");
+            foreach (var tc in toolCalls)
             {
-                var msg = history[i];
-                var preview = msg.Content?.Length > 100
-                    ? msg.Content[..100] + "…"
-                    : msg.Content ?? "(null — tool call)";
+                var status = tc.Succeeded ? "✓" : "✗";
+                sb.AppendLine($"  {status} {tc.FunctionName} (iteration {tc.Iteration}, {tc.DurationMs}ms)");
+            }
+            sb.AppendLine();
+        }
 
-                _logger.LogDebug(
-                    "  [{I:00}] {Role,-14} | {Len,5} chars | {Preview}",
-                    i, msg.Role.ToString(), msg.Content?.Length ?? 0, preview);
+        // ── Last content seen ─────────────────────────────────────────────────
+        if (!string.IsNullOrWhiteSpace(lastSeenContent))
+        {
+            sb.AppendLine("**Last response from agent:**");
+            sb.AppendLine(lastSeenContent.Length > 500
+                ? lastSeenContent[..500] + "…"
+                : lastSeenContent);
+            sb.AppendLine();
+        }
+
+        // ── Error detail ──────────────────────────────────────────────────────
+        if (!string.IsNullOrWhiteSpace(lastException))
+        {
+            sb.AppendLine($"**Error detail:** `{lastException}`");
+            sb.AppendLine();
+        }
+
+        // ── Stats ─────────────────────────────────────────────────────────────
+        sb.AppendLine($"**Stats:** {iteration} iterations | " +
+                      $"{toolCalls.Count} tool calls | " +
+                      $"{elapsed.TotalSeconds:F1}s elapsed");
+
+        // ── Suggestions ───────────────────────────────────────────────────────
+        sb.AppendLine();
+        sb.AppendLine(stopReason switch
+        {
+            "DurationTimeout" or "IterationTimeout" =>
+                "💡 **Try:** Use a faster model (`llama3.1`, `qwen2.5-coder:7b`) " +
+                "or ask a more specific question.",
+            "MaxIterationsReached" =>
+                "💡 **Try:** Break the task into smaller steps.",
+            "Error" =>
+                "💡 **Try:** Check the console logs for details, then retry.",
+            _ => "💡 **Try:** Rephrasing your request or checking service health."
+        });
+
+        return sb.ToString();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // HALLUCINATION GUARDS
+    // ══════════════════════════════════════════════════════════════════════════
+    private (bool ShouldContinue, string GuardName) CheckHallucinationGuards(
+        string content,
+        List<ToolCallRecord> toolCalls,
+        ChatHistory history,
+        int iteration)
+    {
+        var claimsSuccess = ContainsAny(content,
+            "pass", "fixed", "resolved", "working", "corrected", "all tests");
+
+        var writeRecords = toolCalls.Where(t => t.FunctionName == "WriteFile").ToList();
+        var testRecords = toolCalls.Where(t => t.FunctionName == "RunTests").ToList();
+
+        var lastWriteIdx = writeRecords.Count > 0
+            ? toolCalls.IndexOf(writeRecords.Last()) : -1;
+        var lastTestIdx = testRecords.Count > 0
+            ? toolCalls.IndexOf(testRecords.Last()) : -1;
+
+        var testsAfterWrite = lastTestIdx > lastWriteIdx && lastWriteIdx >= 0;
+
+        // Guard A: claimed fix but never wrote
+        if (claimsSuccess && writeRecords.Count == 0)
+        {
+            history.AddUserMessage(
+                "IMPORTANT: You described a fix but never called WriteFile. " +
+                "The source file on disk is UNCHANGED. " +
+                "Call WriteFile with the complete corrected file content now.");
+            return (true, "A:NoWrite");
+        }
+
+        // Guard B: wrote but didn't verify
+        if (claimsSuccess && writeRecords.Count > 0 && !testsAfterWrite)
+        {
+            history.AddUserMessage(
+                "You wrote the file but did not run tests to verify. " +
+                "Call RunTests NOW.");
+            return (true, "B:NoVerify");
+        }
+
+        // Guard C: last test run still failing
+        var lastTest = testRecords.LastOrDefault();
+        if (lastTest is not null && claimsSuccess)
+        {
+            var stillFailing = lastTest.Result.Contains("\"failed\":") &&
+                               !lastTest.Result.Contains("\"failed\":0");
+            if (stillFailing)
+            {
+                history.AddUserMessage(
+                    "The last test run still shows failures. " +
+                    "Read the source file again, fix remaining issues, " +
+                    "call WriteFile, then RunTests again.");
+                return (true, "C:StillFailing");
             }
         }
+
+        return (false, string.Empty);
     }
 
-    // ── Tool Call Recorder ────────────────────────────────────────────────────────
-    // Intercepts tool calls to build the audit trail shown in the UI
+    // ══════════════════════════════════════════════════════════════════════════
+    // HELPERS
+    // ══════════════════════════════════════════════════════════════════════════
+    private static bool IsTimeout(
+        Exception ex,
+        CancellationTokenSource loopCts,
+        CancellationTokenSource iterCts)
+        => ex is OperationCanceledException
+           && (loopCts.IsCancellationRequested || iterCts.IsCancellationRequested);
 
-    internal sealed class ToolCallRecorder
-    {
-        private readonly int _iteration;
-        private readonly List<ToolCallRecord> _records;
-        private readonly ILogger _logger;
-        private readonly IProgress<AgentLoopProgress>? _progress;
+    private static bool ContainsAny(string text, params string[] words)
+        => words.Any(w => text.Contains(w, StringComparison.OrdinalIgnoreCase));
 
-        public ToolCallRecorder(
-            int iteration,
-            List<ToolCallRecord> records,
-            ILogger logger,
-            IProgress<AgentLoopProgress>? progress)
-        {
-            _iteration = iteration;
-            _records = records;
-            _logger = logger;
-            _progress = progress;
-        }
+    private static string BuildSystemPrompt() =>
+        """
+        You are a senior .NET developer assistant with access to file and test tools.
 
-        public void RecordCall(
-            string pluginName,
-            string functionName,
-            string arguments,
-            string result,
-            bool succeeded,
-            long durationMs)
-        {
-            var record = new ToolCallRecord(
-                _iteration, pluginName, functionName,
-                arguments, result, succeeded, durationMs);
+        AVAILABLE TOOLS:
+        - ListFiles(relativePath)            → list files in a directory
+        - ReadFile(relativePath)             → read a file's content
+        - WriteFile(relativePath, content)   → write complete file to disk
+        - RunTests(filter?)                  → run dotnet tests, see results
+        - GetTestFailureDetails(testName)    → deep dive on one failing test
 
-            _records.Add(record);
+        MANDATORY BUG-FIX WORKFLOW — follow exactly in this order:
+        1. RunTests()                → identify which tests fail and why
+        2. ReadFile(sourceFile)      → read the actual source code
+        3. WriteFile(sourceFile, X)  → write the COMPLETE corrected file
+        4. RunTests()                → verify all tests now pass
+        5. Report what you changed   → only after tests confirm success
 
-            _progress?.Report(new AgentLoopProgress(
-                _iteration, "calling",
-                ToolName: $"{pluginName}-{functionName}",
-                ToolArgs: arguments,
-                Message: $"Called {functionName} ({durationMs}ms)"));
-
-            _logger.LogInformation(
-                "[ToolCall] {Plugin}-{Fn} | Args: {Args} | " +
-                "Success: {Ok} | DurationMs: {Ms} | ResultLen: {Len}",
-                pluginName, functionName,
-                arguments.Length > 80 ? arguments[..80] + "…" : arguments,
-                succeeded, durationMs, result.Length);
-        }
-    }
+        ABSOLUTE RULES:
+        - You MUST call WriteFile to change any file. Describing a fix changes nothing.
+        - You MUST call RunTests after WriteFile to verify the fix.
+        - Never claim tests pass without calling RunTests to confirm.
+        - Always write the COMPLETE file content to WriteFile, not just the changed lines.
+        """;
 }

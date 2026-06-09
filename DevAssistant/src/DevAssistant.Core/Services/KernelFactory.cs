@@ -2,7 +2,6 @@
 #pragma warning disable SKEXP0001
 #pragma warning disable SKEXP0070
 
-using DevAssistant.Agent;
 using DevAssistant.Configuration;
 using DevAssistant.Core.Plugins;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,68 +43,47 @@ namespace DevAssistant.Services
         public Kernel CreateKernel()
         {
             _logger.LogInformation(
-                "Building Kernel — Model: {ModelId}, Endpoint: {Endpoint}",
-                _options.ModelId, _options.OllamaEndpoint);
+                "[KernelFactory] Building kernel | " +
+                "OllamaUri: {Base} | OllamaOpenAiUri: {V1} | Model: {Model}",
+                _options.OllamaUri,
+                _options.OllamaOpenAiUri,
+                _options.ModelId);
 
             var builder = Kernel.CreateBuilder();
 
             var ollamaHttpClient = new HttpClient
             {
-                BaseAddress = new Uri(_options.OllamaEndpoint.TrimEnd('/') + "/"),
-                Timeout = TimeSpan.FromMinutes(5) // local models can be slow
+                BaseAddress = _options.OllamaOpenAiUri,
+                Timeout = Timeout.InfiniteTimeSpan   // let AgentLoop control timeout
             };
 
             builder.AddOpenAIChatCompletion(
-                modelId: _options.ModelId,
-                apiKey: "ollama",           // Ollama ignores this but SK requires it
-                endpoint: new Uri(_options.OllamaEndpoint.TrimEnd('/') + "/"),
-                httpClient: ollamaHttpClient);
-
-            // Embeddings — same pattern
+               modelId: _options.ModelId,
+               apiKey: "ollama",
+               endpoint: _options.OllamaOpenAiUri,
+               httpClient: ollamaHttpClient);
+            // Embeddings client
             var embedHttpClient = new HttpClient
             {
-                BaseAddress = new Uri(_options.OllamaEndpoint.TrimEnd('/') + "/"),
+                BaseAddress = _options.OllamaOpenAiUri,
                 Timeout = TimeSpan.FromMinutes(2)
             };
-
             builder.AddOpenAITextEmbeddingGeneration(
                 modelId: _options.EmbeddingModelId,
                 apiKey: "ollama",
-                //endpoint: new Uri(_options.OllamaEndpoint.TrimEnd('/') + "/"),
-                httpClient: embedHttpClient);
+                httpClient: embedHttpClient);   // ← same
 
             builder.Services.AddSingleton(_loggerFactory);
-            // builder.Services.AddSingleton<IFunctionInvocationFilter, ToolCallLoggingFilter>();
 
             var kernel = builder.Build();
-            // ── Register the filter AFTER build, resolved from DI ────────────────────
-            // This ensures ILogger<ToolCallLoggingFilter> is resolved from the app's
-            // ILoggerFactory rather than SK trying to build it independently
-            var filter = _services.GetRequiredService<ToolCallLoggingFilter>();
-            kernel.FunctionInvocationFilters.Add(filter);
 
-            // ── Register all plugins so LLM can call them ─────────────────────────
             kernel.RegisterAgentPlugins(_services);
 
-            // In KernelFactory.CreateKernel() after RegisterAgentPlugins:
             foreach (var plugin in kernel.Plugins)
-            {
                 foreach (var fn in plugin)
-                {
-                    _logger.LogInformation("=======================================================================");
-                    _logger.LogInformation("=======================================================================");
-
                     _logger.LogInformation(
-                        "  Tool registered: {Plugin}-{Function} — {Description}",
-                        plugin.Name, fn.Name, fn.Description);
+                        "  Tool ready: {Plugin}.{Fn}", plugin.Name, fn.Name);
 
-                    _logger.LogInformation("=======================================================================");
-                    _logger.LogInformation("=======================================================================");
-
-                }
-            }
-
-            _logger.LogInformation("Kernel built successfully");
             return kernel;
         }
     }

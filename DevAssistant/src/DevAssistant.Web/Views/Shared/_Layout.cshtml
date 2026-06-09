@@ -169,7 +169,7 @@
             el.className = 'status-dot ' + (online ? 'online' : 'offline');
         }
         pollHealth();
-        setInterval(pollHealth, 15000);
+        setInterval(pollHealth, 120000);
     </script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>

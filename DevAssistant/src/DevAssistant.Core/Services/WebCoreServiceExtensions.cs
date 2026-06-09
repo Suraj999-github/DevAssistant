@@ -1,6 +1,6 @@
 ﻿using DevAssistant.Agent;
-using DevAssistant.Api.Services;
 using DevAssistant.Configuration;
+using DevAssistant.Core.Agent;
 using DevAssistant.Core.Plugins;
 using DevAssistant.Plugins;
 using Microsoft.Extensions.Configuration;
@@ -42,7 +42,7 @@ namespace DevAssistant.Services
             // ── Agent services ────────────────────────────────────────────────────
             services.AddSingleton<IKernelFactory, KernelFactory>();
             services.AddSingleton<ILlmChatService, LlmChatService>();
-            services.AddTransient<EnvironmentHealthChecker>();
+            // services.AddTransient<EnvironmentHealthChecker>();
             // services.AddSingleton<IKernelFactory, KernelFactory>();             
             services.AddTransient<WebEnvironmentHealthChecker>();
 
@@ -52,10 +52,10 @@ namespace DevAssistant.Services
             services.AddSingleton<IMemoryService, MemoryService>(); // singleton owns the file lock
             services.AddTransient<FilePlugin>();
             services.AddSingleton<IAgentLoop, AgentLoop>();
-            //services.AddSingleton<IFunctionInvocationFilter, ToolCallLoggingFilter>();
-            // ADD this instead — register the concrete type so ILogger<T> resolves correctly:
-            services.AddSingleton<ToolCallLoggingFilter>();
+            //services.AddSingleton<IFunctionInvocationFilter, ToolCallLoggingFilter>();         
+            // services.AddSingleton<ToolCallLoggingFilter>();
             services.AddTransient<TestPlugin>();
+            services.AddSingleton<IMessageRouter, MessageRouter>();
 
             return services;
         }

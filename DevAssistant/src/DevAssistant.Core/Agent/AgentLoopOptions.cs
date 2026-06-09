@@ -7,13 +7,13 @@
         /// Prevents infinite loops where the LLM keeps calling tools endlessly.
         /// Default: 10 — enough for complex multi-file tasks.
         /// </summary>
-        public int MaxIterations { get; init; } = 15;
+        public int MaxIterations { get; init; } = 2;
 
         /// <summary>
         /// Maximum total wall-clock time for the entire agent loop.
         /// Prevents a single runaway session from blocking the server.
         /// </summary>
-        public TimeSpan MaxDuration { get; init; } = TimeSpan.FromMinutes(8);
+        public TimeSpan MaxDuration { get; init; } = TimeSpan.FromMinutes(10);
 
         /// <summary>
         /// If true, logs the full ChatHistory after every iteration.

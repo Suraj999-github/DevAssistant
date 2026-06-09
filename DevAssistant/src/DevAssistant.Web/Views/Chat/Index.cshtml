@@ -433,80 +433,147 @@
             stopBtn.style.display = 'none';
         }
 
+        // async function send() {
+        //     const text = inputEl.value.trim();
+        //     if (!text) return;
+        //     inputEl.value = '';
+
+        //     appendMessage('user', escHtml(text));
+        //     const bubble = appendMessage('assistant');
+        //     bubble.innerHTML = '<span class="typing-indicator"><span></span><span></span><span></span></span>';
+
+        //     sendBtn.style.display = 'none';
+        //     stopBtn.style.display = '';
+        //     let fullText = '';
+        //     let activeToolEl = null;
+
+        //     const url = `/chat/stream?message=${encodeURIComponent(text)}`;
+        //     const es = new EventSource(url);
+        //     activeEs = es;
+
+        //     es.onmessage = (e) => {
+        //         if (e.data === '[DONE]') { es.close(); finish(); return; }
+
+        //         try {
+        //             const d = JSON.parse(e.data);
+
+        //             // ── Tool call started ─────────────────────────────────────────────
+        //             if (d.toolCall) {
+        //                 activeToolEl = appendToolCall(d.toolCall, d.args ?? '');
+        //                 return;
+        //             }
+
+        //             // ── Tool call complete ────────────────────────────────────────────
+        //             if (d.toolDone && activeToolEl) {
+        //                 activeToolEl.classList.remove('running');
+        //                 activeToolEl.classList.add('done');
+        //                 activeToolEl.querySelector('.spin')?.classList.remove('spin');
+        //                 activeToolEl.querySelector('.tool-status').textContent = '✓';
+        //                 activeToolEl = null;
+
+        //                 // Show test summary inline if this was RunTests
+        //                 if (d.toolName === 'RunTests' && d.summary) {
+        //                     appendTestSummary(d.summary);
+        //                 }
+        //                 return;
+        //             }
+
+        //             // ── Error ─────────────────────────────────────────────────────────
+        //             if (d.error) {
+        //                 bubble.innerHTML =
+        //                     `<span class="text-danger"><i class="bi bi-exclamation-triangle me-2"></i>${escHtml(d.error)}</span>`;
+        //                 es.close(); finish(); return;
+        //             }
+
+        //             // ── Token ─────────────────────────────────────────────────────────
+        //             if (d.token !== undefined) {
+        //                 fullText += d.token;
+        //                 totalTokens++;
+        //                 tokenEl.textContent = `${totalTokens} tokens`;
+        //                 bubble.innerHTML = renderContent(fullText);
+        //                 messagesEl.scrollTop = messagesEl.scrollHeight;
+        //             }
+        //         } catch { }
+        //     };
+
+        //     es.onerror = () => { es.close(); finish(); };
+
+        //     function finish() {
+        //         activeEs = null;
+        //         sendBtn.style.display = '';
+        //         stopBtn.style.display = 'none';
+        //         messagesEl.querySelectorAll('pre code')
+        //             .forEach(el => hljs.highlightElement(el));
+        //     }
+        // }
         async function send() {
-            const text = inputEl.value.trim();
-            if (!text) return;
-            inputEl.value = '';
+    const text = inputEl.value.trim();
+    if (!text) return;
+    inputEl.value = '';
 
-            appendMessage('user', escHtml(text));
-            const bubble = appendMessage('assistant');
-            bubble.innerHTML = '<span class="typing-indicator"><span></span><span></span><span></span></span>';
+    appendMessage('user', escHtml(text));
+    const bubble = appendMessage('assistant');
+    bubble.innerHTML = '<span class="typing-indicator"><span></span><span></span><span></span></span>';
 
-            sendBtn.style.display = 'none';
-            stopBtn.style.display = '';
-            let fullText = '';
-            let activeToolEl = null;
+    sendBtn.style.display = 'none';
+    stopBtn.style.display = '';
 
-            const url = `/chat/stream?message=${encodeURIComponent(text)}`;
-            const es = new EventSource(url);
-            activeEs = es;
+    let fullText = '';
 
-            es.onmessage = (e) => {
-                if (e.data === '[DONE]') { es.close(); finish(); return; }
+    const url = `/chat/stream?message=${encodeURIComponent(text)}`;
+    const es  = new EventSource(url);
+    activeEs  = es;
 
-                try {
-                    const d = JSON.parse(e.data);
+    // Heartbeat detector — if no message for 20s, show waiting indicator
+    let heartbeatTimer = null;
+    function resetHeartbeat() {
+        clearTimeout(heartbeatTimer);
+        heartbeatTimer = setTimeout(() => {
+            bubble.innerHTML = renderContent(fullText) +
+                '<span class="waiting-indicator ms-2 text-secondary small">' +
+                '<i class="bi bi-hourglass-split me-1"></i>Agent thinking...</span>';
+        }, 20_000);
+    }
+    resetHeartbeat();
 
-                    // ── Tool call started ─────────────────────────────────────────────
-                    if (d.toolCall) {
-                        activeToolEl = appendToolCall(d.toolCall, d.args ?? '');
-                        return;
-                    }
+    es.onmessage = (e) => {
+        resetHeartbeat();
 
-                    // ── Tool call complete ────────────────────────────────────────────
-                    if (d.toolDone && activeToolEl) {
-                        activeToolEl.classList.remove('running');
-                        activeToolEl.classList.add('done');
-                        activeToolEl.querySelector('.spin')?.classList.remove('spin');
-                        activeToolEl.querySelector('.tool-status').textContent = '✓';
-                        activeToolEl = null;
+        // Ignore SSE keepalive comments (": keepalive")
+        if (!e.data) return;
+        if (e.data === '[DONE]') { es.close(); finish(); return; }
 
-                        // Show test summary inline if this was RunTests
-                        if (d.toolName === 'RunTests' && d.summary) {
-                            appendTestSummary(d.summary);
-                        }
-                        return;
-                    }
-
-                    // ── Error ─────────────────────────────────────────────────────────
-                    if (d.error) {
-                        bubble.innerHTML =
-                            `<span class="text-danger"><i class="bi bi-exclamation-triangle me-2"></i>${escHtml(d.error)}</span>`;
-                        es.close(); finish(); return;
-                    }
-
-                    // ── Token ─────────────────────────────────────────────────────────
-                    if (d.token !== undefined) {
-                        fullText += d.token;
-                        totalTokens++;
-                        tokenEl.textContent = `${totalTokens} tokens`;
-                        bubble.innerHTML = renderContent(fullText);
-                        messagesEl.scrollTop = messagesEl.scrollHeight;
-                    }
-                } catch { }
-            };
-
-            es.onerror = () => { es.close(); finish(); };
-
-            function finish() {
-                activeEs = null;
-                sendBtn.style.display = '';
-                stopBtn.style.display = 'none';
-                messagesEl.querySelectorAll('pre code')
-                    .forEach(el => hljs.highlightElement(el));
+        try {
+            const d = JSON.parse(e.data);
+            if (d.error) {
+                bubble.innerHTML = `<span class="text-danger">⚠ ${escHtml(d.error)}</span>`;
+                es.close(); finish(); return;
             }
-        }
+            if (d.token !== undefined) {
+                fullText += d.token;
+                totalTokens++;
+                tokenEl.textContent = `${totalTokens} tokens`;
+                bubble.innerHTML = renderContent(fullText);
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+            }
+        } catch {}
+    };
 
+    es.onerror = (e) => {
+        clearTimeout(heartbeatTimer);
+        // Don't treat every error as fatal — SSE reconnects automatically
+        _logger?.warn?.('[SSE] Connection error — may reconnect', e);
+    };
+
+    function finish() {
+        clearTimeout(heartbeatTimer);
+        activeEs     = null;
+        sendBtn.style.display = '';
+        stopBtn.style.display = 'none';
+        messagesEl.querySelectorAll('pre code')
+            .forEach(el => hljs.highlightElement(el));
+    }
+}
         // ── Renderers ─────────────────────────────────────────────────────────────────
         function renderContent(text) {
             // Strip raw JSON tool results the LLM might echo

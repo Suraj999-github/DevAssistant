@@ -36,10 +36,12 @@ D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin
 D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\Microsoft.SemanticKernel.dll
 D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\Microsoft.SemanticKernel.Abstractions.dll
 D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\Microsoft.SemanticKernel.Connectors.AzureOpenAI.dll
+D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\Microsoft.SemanticKernel.Connectors.Ollama.dll
 D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\Microsoft.SemanticKernel.Connectors.OpenAI.dll
 D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\Microsoft.SemanticKernel.Connectors.Qdrant.dll
 D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\Microsoft.SemanticKernel.Core.dll
 D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\ModelContextProtocol.dll
+D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\OllamaSharp.dll
 D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\OpenAI.dll
 D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\Polly.Core.dll
 D:\LEARN AI\AI agent learning\DevAssistant\DevAssistant\src\DevAssistant.Web\bin\Debug\net8.0\Polly.Extensions.dll

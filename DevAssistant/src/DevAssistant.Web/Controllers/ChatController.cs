@@ -22,40 +22,135 @@ namespace DevAssistant.Web.Controllers
 
         public IActionResult Index() => View();
 
+        //[HttpGet("/chat/stream")]
+        //public async Task Stream(
+        //    [FromQuery] string message,
+        //    [FromQuery] string? systemPrompt,
+        //    [FromQuery] string? sessionId,
+        //    CancellationToken ct)
+        //{
+        //    _logger.LogInformation("[Chat] Stream: {Message}", message);
+
+        //    Response.Headers.Append("Content-Type", "text/event-stream");
+        //    Response.Headers.Append("Cache-Control", "no-cache");
+        //    Response.Headers.Append("X-Accel-Buffering", "no");
+
+        //    try
+        //    {
+        //        await foreach (var token in _agent.StreamChatAsync(message, systemPrompt, ct))
+        //        {
+        //            var payload = $"data: {JsonSerializer.Serialize(new { token })}\n\n";
+        //            await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(payload), ct);
+        //            await Response.Body.FlushAsync(ct);
+        //        }
+
+        //        await Response.Body.WriteAsync(
+        //            Encoding.UTF8.GetBytes("data: [DONE]\n\n"), ct);
+        //    }
+        //    catch (OperationCanceledException)
+        //    {
+        //        _logger.LogInformation("[Chat] Client disconnected");
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogError(ex, "[Chat] Stream error");
+        //        var err = $"data: {JsonSerializer.Serialize(new { error = ex.Message })}\n\n";
+        //        await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(err), ct);
+        //    }
+        //}
+        // src/DevAssistant.Web/Controllers/ChatController.cs
         [HttpGet("/chat/stream")]
         public async Task Stream(
             [FromQuery] string message,
             [FromQuery] string? systemPrompt,
-            [FromQuery] string? sessionId,
-            CancellationToken ct)
+            CancellationToken browserCt)
         {
             _logger.LogInformation("[Chat] Stream: {Message}", message);
 
             Response.Headers.Append("Content-Type", "text/event-stream");
             Response.Headers.Append("Cache-Control", "no-cache");
             Response.Headers.Append("X-Accel-Buffering", "no");
+            Response.Headers.Append("Connection", "keep-alive");
 
+            // ── Agent runs with its own token — completely independent ────────────
+            using var agentCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+
+            _logger.LogInformation(
+                "[Chat] Starting background agent task (independent of HTTP request)");
+
+            var agentTask = Task.Run(
+                () => _agent.CollectResponseAsync(message, systemPrompt, agentCts.Token),
+                CancellationToken.None);   // ← Task.Run itself not cancellable
+
+            // ── Keepalive loop — runs until agent completes or browser drops ──────
             try
             {
-                await foreach (var token in _agent.StreamChatAsync(message, systemPrompt, ct))
+                while (!agentTask.IsCompleted)
                 {
-                    var payload = $"data: {JsonSerializer.Serialize(new { token })}\n\n";
-                    await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(payload), ct);
-                    await Response.Body.FlushAsync(ct);
-                }
+                    // Send SSE comment — browsers ignore it but it keeps TCP alive
+                    var keepalive = Encoding.UTF8.GetBytes(": keepalive\n\n");
+                    await Response.Body.WriteAsync(keepalive, browserCt);
+                    await Response.Body.FlushAsync(browserCt);
 
-                await Response.Body.WriteAsync(
-                    Encoding.UTF8.GetBytes("data: [DONE]\n\n"), ct);
+                    _logger.LogDebug("[Chat] Keepalive sent — agent still running");
+
+                    await Task.Delay(TimeSpan.FromSeconds(15), browserCt)
+                        .ContinueWith(_ => { }); // absorb cancellation
+                }
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation("[Chat] Client disconnected");
+                _logger.LogInformation(
+                    "[Chat] Browser disconnected during keepalive — agent continues in background");
             }
-            catch (Exception ex)
+
+            // ── Agent finished — stream the result ───────────────────────────────
+            if (agentTask.IsCompletedSuccessfully)
             {
-                _logger.LogError(ex, "[Chat] Stream error");
-                var err = $"data: {JsonSerializer.Serialize(new { error = ex.Message })}\n\n";
-                await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(err), ct);
+                var response = await agentTask;
+                _logger.LogInformation(
+                    "[Chat] Agent complete — streaming {Len} chars to browser",
+                    response.Length);
+
+                const int chunkSize = 40;
+                for (var i = 0; i < response.Length; i += chunkSize)
+                {
+                    var chunk = response[i..Math.Min(i + chunkSize, response.Length)];
+                    var payload = $"data: {JsonSerializer.Serialize(new { token = chunk })}\n\n";
+                    try
+                    {
+                        await Response.Body.WriteAsync(
+                            Encoding.UTF8.GetBytes(payload), CancellationToken.None);
+                        await Response.Body.FlushAsync(CancellationToken.None);
+                    }
+                    catch
+                    {
+                        break; // browser disconnected during streaming — ok
+                    }
+                    await Task.Delay(8, CancellationToken.None);
+                }
+            }
+            else if (agentTask.IsFaulted)
+            {
+                _logger.LogError(agentTask.Exception, "[Chat] Agent task faulted");
+                var err = $"data: {JsonSerializer.Serialize(new { error = agentTask.Exception?.Message })}\n\n";
+                await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(err), CancellationToken.None);
+            }
+
+            await Response.Body.WriteAsync(
+                Encoding.UTF8.GetBytes("data: [DONE]\n\n"), CancellationToken.None);
+        }
+        private async Task StreamResponseAsync(string response, CancellationToken ct)
+        {
+            const int chunkSize = 40;
+            for (var i = 0; i < response.Length; i += chunkSize)
+            {
+                if (ct.IsCancellationRequested) break;
+                var chunk = response[i..Math.Min(i + chunkSize, response.Length)];
+                var payload = $"data: {JsonSerializer.Serialize(new { token = chunk })}\n\n";
+                await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(payload), ct);
+                await Response.Body.FlushAsync(ct);
+                await Task.Delay(8, ct);
             }
         }
     }
