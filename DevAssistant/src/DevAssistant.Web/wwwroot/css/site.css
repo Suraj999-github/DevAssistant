@@ -403,3 +403,114 @@ body {
 .table-sm td, .table-sm th {
     font-size: 0.85rem;
 }
+/* ── Agent trace panel ─────────────────────────────────────────────────────── */
+.agent-trace {
+    background: var(--bg-darker);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin: 0.5rem 0;
+    font-size: 0.78rem;
+}
+
+.agent-trace-header {
+    display: flex;
+    align-items: center;
+    padding: 0.4rem 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.agent-trace-body {
+    padding: 0.5rem 0.75rem;
+}
+
+.trace-step {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    padding: 0.25rem 0;
+    border-left: 2px solid var(--border-color);
+    padding-left: 0.5rem;
+    margin-left: 0.25rem;
+}
+
+    .trace-step.thinking {
+        border-color: #58a6ff;
+    }
+
+    .trace-step.calling {
+        border-color: #d29922;
+    }
+
+    .trace-step.observing {
+        border-color: #3fb950;
+    }
+
+    .trace-step.complete {
+        border-color: #8b949e;
+    }
+
+.trace-label {
+    font-weight: 600;
+    min-width: 70px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+}
+/* ── Tool call indicator ───────────────────────────────────────────────────── */
+.tool-call-indicator {
+    display: flex;
+    align-items: center;
+    padding: 0.35rem 1rem;
+    font-size: 0.78rem;
+    border-left: 3px solid var(--border-color);
+    border-radius: 0 4px 4px 0;
+    margin: 0.2rem 0;
+    background: rgba(255,255,255,0.02);
+}
+
+    .tool-call-indicator.running {
+        border-color: #d29922;
+    }
+
+    .tool-call-indicator.done {
+        border-color: #3fb950;
+        opacity: 0.7;
+    }
+
+.tool-name {
+    font-weight: 600;
+    color: #e6edf3;
+}
+
+.tool-args {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-status {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* ── Inline test summary ───────────────────────────────────────────────────── */
+.test-summary-inline {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 0.4rem 0;
+    font-size: 0.85rem;
+}
+
+.test-failure-item {
+    background: rgba(248,81,73,0.08);
+    border-left: 3px solid #f85149;
+    border-radius: 0 4px 4px 0;
+    padding: 0.3rem 0.6rem;
+    margin-top: 0.3rem;
+}

@@ -30,7 +30,7 @@ try
     // ── Web-layer adapter ─────────────────────────────────────────────────────
     builder.Services.AddScoped<IAgentService, AgentService>();
     builder.Services.AddScoped<IAgentApiClient, AgentApiClient>();
- 
+
     var app = builder.Build();
 
     if (!app.Environment.IsDevelopment())

@@ -1,6 +1,8 @@
-﻿using DevAssistant.Api.Services;
+﻿using DevAssistant.Agent;
+using DevAssistant.Api.Services;
 using DevAssistant.Configuration;
 using DevAssistant.Core.Plugins;
+using DevAssistant.Plugins;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -48,8 +50,12 @@ namespace DevAssistant.Services
             services.AddScoped<IFileBrowserService, FileBrowserService>();
             services.AddScoped<ITestRunnerService, TestRunnerService>();
             services.AddSingleton<IMemoryService, MemoryService>(); // singleton owns the file lock
-            services.AddTransient<FilePlugin>();         
-          
+            services.AddTransient<FilePlugin>();
+            services.AddSingleton<IAgentLoop, AgentLoop>();
+            //services.AddSingleton<IFunctionInvocationFilter, ToolCallLoggingFilter>();
+            // ADD this instead — register the concrete type so ILogger<T> resolves correctly:
+            services.AddSingleton<ToolCallLoggingFilter>();
+            services.AddTransient<TestPlugin>();
 
             return services;
         }

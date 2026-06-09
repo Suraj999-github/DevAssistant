@@ -20,16 +20,16 @@
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
 
 		<PackageReference Include="Microsoft.SemanticKernel" Version="1.21.1" />
-
 		<PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.21.1" />
-
 		<PackageReference Include="Microsoft.SemanticKernel.Connectors.Qdrant" Version="1.21.1-alpha" />
+		<PackageReference Include="Microsoft.SemanticKernel.Connectors.Ollama"    Version="1.21.1-alpha" />
 
 		<PackageReference Include="ModelContextProtocol" Version="0.1.0-preview.10" />
 		<PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="8.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
+		
 	</ItemGroup>
 
 	<ItemGroup>

@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-
-
 public class OrderService
 {
     private readonly List<Order> _orders = new();

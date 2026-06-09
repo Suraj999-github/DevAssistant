@@ -1,12 +1,4 @@
-﻿using DevAssistant.Models;
-using DevAssistant.Services;
-using DevAssistant.Web.Services;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.SemanticKernel.ChatCompletion;
-using Moq;
-using Xunit;
-
-namespace DevAssistant.Tests
+﻿namespace DevAssistant.Tests
 {
     //public class AgentServiceTests
     //{

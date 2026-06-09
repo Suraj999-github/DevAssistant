@@ -1,4 +1,5 @@
-﻿using DevAssistant.Models;
+﻿using DevAssistant.Agent;
+using DevAssistant.Models;
 using DevAssistant.Services;
 using Microsoft.SemanticKernel.ChatCompletion;
 using System.Runtime.CompilerServices;
@@ -43,9 +44,12 @@ namespace DevAssistant.Web.Services
         private readonly IFileBrowserService _files;
         private readonly ITestRunnerService _tests;
         private readonly ChatHistory _history = new();
+        private readonly IAgentLoop _agentLoop;
+
         public AgentService(
             WebEnvironmentHealthChecker health,
             ILlmChatService llm,
+            IAgentLoop agentLoop,
             IMemoryService memory,
             IFileBrowserService files,
             ITestRunnerService tests,
@@ -53,6 +57,7 @@ namespace DevAssistant.Web.Services
         {
             _health = health;
             _llm = llm;
+            _agentLoop = agentLoop;
             _memory = memory;
             _files = files;
             _tests = tests;
@@ -75,30 +80,30 @@ namespace DevAssistant.Web.Services
             string? systemPrompt,
             [EnumeratorCancellation] CancellationToken ct = default)
         {
-            // LlmChatService writes to Console — we intercept via a custom sink
-            // For now: call non-streaming and yield the full response as one chunk.
-            // Step 8 will add true token-by-token streaming with a custom sink.
             _logger.LogInformation("[AgentService] Chat: {Msg}", message);
 
-            //var history = new ChatHistory();
-            //var response = await _llm.StreamChatAsync(message, systemPrompt, history, ct);
+            var options = new AgentLoopOptions
+            {
+                MaxIterations = 10,
+                MaxDuration = TimeSpan.FromMinutes(3),
+                VerboseHistoryLogging = true,
+                RequireWriteConfirmation = false
+            };
 
-            //// Yield in ~50-char chunks to simulate streaming in the browser
-            //for (var i = 0; i < response.Length; i += 50)
-            //{
-            //    ct.ThrowIfCancellationRequested();
-            //    yield return response[i..Math.Min(i + 50, response.Length)];
-            //    await Task.Delay(10, ct); // small delay for visible streaming effect
-            //}
+            // Run the full think→call→observe loop
+            var result = await _agentLoop.RunAsync(
+                message, _history, options, progress: null, ct);
 
-            // Use the persistent history — LLM remembers context across turns
-            var response = await _llm.StreamChatAsync(message, systemPrompt, _history, ct);
+            // Stream the final response to browser in chunks
+            var response = result.Success
+                ? result.FinalResponse
+                : $"⚠ {result.FinalResponse}";
 
-            for (var i = 0; i < response.Length; i += 50)
+            for (var i = 0; i < response.Length; i += 40)
             {
                 ct.ThrowIfCancellationRequested();
-                yield return response[i..Math.Min(i + 50, response.Length)];
-                await Task.Delay(10, ct);
+                yield return response[i..Math.Min(i + 40, response.Length)];
+                await Task.Delay(8, ct);
             }
         }
 

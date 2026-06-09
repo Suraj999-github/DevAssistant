@@ -2,6 +2,7 @@
 #pragma warning disable SKEXP0001
 #pragma warning disable SKEXP0070
 
+using DevAssistant.Agent;
 using DevAssistant.Configuration;
 using DevAssistant.Core.Plugins;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,7 +21,7 @@ namespace DevAssistant.Services
     {
         Kernel CreateKernel();
     }
- 
+
     public sealed class KernelFactory : IKernelFactory
     {
         private readonly AgentOptions _options;
@@ -47,7 +48,7 @@ namespace DevAssistant.Services
                 _options.ModelId, _options.OllamaEndpoint);
 
             var builder = Kernel.CreateBuilder();
-          
+
             var ollamaHttpClient = new HttpClient
             {
                 BaseAddress = new Uri(_options.OllamaEndpoint.TrimEnd('/') + "/"),
@@ -74,8 +75,14 @@ namespace DevAssistant.Services
                 httpClient: embedHttpClient);
 
             builder.Services.AddSingleton(_loggerFactory);
+            // builder.Services.AddSingleton<IFunctionInvocationFilter, ToolCallLoggingFilter>();
 
             var kernel = builder.Build();
+            // ── Register the filter AFTER build, resolved from DI ────────────────────
+            // This ensures ILogger<ToolCallLoggingFilter> is resolved from the app's
+            // ILoggerFactory rather than SK trying to build it independently
+            var filter = _services.GetRequiredService<ToolCallLoggingFilter>();
+            kernel.FunctionInvocationFilters.Add(filter);
 
             // ── Register all plugins so LLM can call them ─────────────────────────
             kernel.RegisterAgentPlugins(_services);

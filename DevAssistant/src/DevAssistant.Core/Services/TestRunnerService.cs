@@ -27,7 +27,7 @@ namespace DevAssistant.Services
 
         // Tracked so we can kill it from outside
         private Process? _activeProcess;
-        private CancellationTokenSource? _activeCts;      
+        private CancellationTokenSource? _activeCts;
 
         private int TimeoutSeconds =>
             int.TryParse(_config["TestRunner:TimeoutSeconds"], out var t) ? t : 120;

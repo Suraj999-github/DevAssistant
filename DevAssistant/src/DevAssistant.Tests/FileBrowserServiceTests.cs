@@ -1,10 +1,4 @@
-﻿using DevAssistant.Services;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Logging.Abstractions;
-using Moq;
-using Xunit;
-
-namespace DevAssistant.Tests
+﻿namespace DevAssistant.Tests
 {
     //public class FileBrowserServiceTests : IDisposable
     //{

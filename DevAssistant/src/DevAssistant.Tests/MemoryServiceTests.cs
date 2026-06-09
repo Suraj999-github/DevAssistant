@@ -1,9 +1,4 @@
-﻿using DevAssistant.Services;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging.Abstractions;
-using Xunit;
-
-namespace DevAssistant.Tests
+﻿namespace DevAssistant.Tests
 {
     //public class MemoryServiceTests : IDisposable
     //{

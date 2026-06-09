@@ -1,6 +1,6 @@
 ﻿
 namespace DevAssistant.Security
-{ 
+{
 
     /// <summary>
     /// Validates and resolves file paths to prevent directory traversal attacks.

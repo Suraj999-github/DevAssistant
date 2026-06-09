@@ -288,7 +288,18 @@
             </div>
         </div>
     </div>
-
+    <!-- Add after chat-messages div -->
+    <div id="agentTrace" class="agent-trace" style="display:none">
+        <div class="agent-trace-header">
+            <i class="bi bi-diagram-3 me-2"></i>
+            Agent Trace
+            <span id="traceIterations" class="badge bg-secondary ms-2"></span>
+            <button class="btn btn-sm btn-link ms-auto" onclick="toggleTrace()">
+                <i class="bi bi-chevron-down" id="traceChevron"></i>
+            </button>
+        </div>
+        <div id="traceBody" class="agent-trace-body"></div>
+    </div>
     <!-- Input bar -->
     <div class="chat-input-bar">
         <div class="input-group">
@@ -316,8 +327,210 @@
         </div>
     </div>
 </div>
-
+<!-- Views/Chat/Index.cshtml — replace the full Scripts section -->
 @section Scripts {
+    <script>
+        const messagesEl = document.getElementById('chatMessages');
+        const inputEl = document.getElementById('chatInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const tokenEl = document.getElementById('tokenCount');
+
+        let totalTokens = 0;
+
+        inputEl.addEventListener('keydown', e => {
+            if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); send(); }
+        });
+        sendBtn.addEventListener('click', send);
+        stopBtn.addEventListener('click', () => stopStream());
+        clearBtn.addEventListener('click', () => {
+            messagesEl.innerHTML = '';
+            totalTokens = 0;
+            tokenEl.textContent = '0 tokens';
+        });
+
+        // ── Message builders ──────────────────────────────────────────────────────────
+        function appendMessage(role, content = '') {
+            const wrap = document.createElement('div');
+            wrap.className = `message ${role}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.innerHTML = role === 'user'
+                ? '<i class="bi bi-person-fill"></i>'
+                : '<i class="bi bi-robot"></i>';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            bubble.innerHTML = content;
+
+            wrap.appendChild(avatar);
+            wrap.appendChild(bubble);
+            messagesEl.appendChild(wrap);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            return bubble;
+        }
+
+        function appendToolCall(toolName, args, status = 'running') {
+            const el = document.createElement('div');
+            el.className = `tool-call-indicator ${status}`;
+            el.id = `tool-${Date.now()}`;
+
+            const icons = {
+                ReadFile: 'bi-file-earmark-text',
+                WriteFile: 'bi-floppy',
+                ListFiles: 'bi-folder2-open',
+                RunTests: 'bi-play-circle',
+                GetTestFailureDetails: 'bi-bug'
+            };
+            const icon = icons[toolName] || 'bi-gear-fill';
+
+            el.innerHTML = `
+                <i class="bi ${icon} me-2 ${status === 'running' ? 'spin' : ''}"></i>
+                <span class="tool-name">${toolName}</span>
+                <code class="tool-args ms-2">${escHtml(args)}</code>
+                <span class="tool-status ms-auto">${status === 'running' ? '...' : '✓'}</span>`;
+
+            messagesEl.appendChild(el);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            return el;
+        }
+
+        function appendTestSummary(summary) {
+            const el = document.createElement('div');
+            el.className = 'test-summary-inline';
+            const allPass = summary.failed === 0;
+            el.innerHTML = `
+                <div class="d-flex gap-3 align-items-center">
+                    <i class="bi ${allPass ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'} fs-5"></i>
+                    <div>
+                        <strong>${allPass ? 'All tests passed' : `${summary.failed} test(s) failing`}</strong>
+                        <div class="small text-secondary">
+                            ${summary.passed} passed · ${summary.failed} failed · ${summary.total} total
+                        </div>
+                    </div>
+                </div>
+                ${summary.failures?.length ? `
+                <div class="mt-2">
+                    ${summary.failures.map(f => `
+                    <div class="test-failure-item">
+                        <code>${escHtml(f.testName)}</code>
+                        <div class="small text-danger mt-1">${escHtml(f.error)}</div>
+                    </div>`).join('')}
+                </div>` : ''}`;
+
+            messagesEl.appendChild(el);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        // ── Send ──────────────────────────────────────────────────────────────────────
+        let activeEs = null;
+
+        function stopStream() {
+            if (activeEs) { activeEs.close(); activeEs = null; }
+            sendBtn.style.display = '';
+            stopBtn.style.display = 'none';
+        }
+
+        async function send() {
+            const text = inputEl.value.trim();
+            if (!text) return;
+            inputEl.value = '';
+
+            appendMessage('user', escHtml(text));
+            const bubble = appendMessage('assistant');
+            bubble.innerHTML = '<span class="typing-indicator"><span></span><span></span><span></span></span>';
+
+            sendBtn.style.display = 'none';
+            stopBtn.style.display = '';
+            let fullText = '';
+            let activeToolEl = null;
+
+            const url = `/chat/stream?message=${encodeURIComponent(text)}`;
+            const es = new EventSource(url);
+            activeEs = es;
+
+            es.onmessage = (e) => {
+                if (e.data === '[DONE]') { es.close(); finish(); return; }
+
+                try {
+                    const d = JSON.parse(e.data);
+
+                    // ── Tool call started ─────────────────────────────────────────────
+                    if (d.toolCall) {
+                        activeToolEl = appendToolCall(d.toolCall, d.args ?? '');
+                        return;
+                    }
+
+                    // ── Tool call complete ────────────────────────────────────────────
+                    if (d.toolDone && activeToolEl) {
+                        activeToolEl.classList.remove('running');
+                        activeToolEl.classList.add('done');
+                        activeToolEl.querySelector('.spin')?.classList.remove('spin');
+                        activeToolEl.querySelector('.tool-status').textContent = '✓';
+                        activeToolEl = null;
+
+                        // Show test summary inline if this was RunTests
+                        if (d.toolName === 'RunTests' && d.summary) {
+                            appendTestSummary(d.summary);
+                        }
+                        return;
+                    }
+
+                    // ── Error ─────────────────────────────────────────────────────────
+                    if (d.error) {
+                        bubble.innerHTML =
+                            `<span class="text-danger"><i class="bi bi-exclamation-triangle me-2"></i>${escHtml(d.error)}</span>`;
+                        es.close(); finish(); return;
+                    }
+
+                    // ── Token ─────────────────────────────────────────────────────────
+                    if (d.token !== undefined) {
+                        fullText += d.token;
+                        totalTokens++;
+                        tokenEl.textContent = `${totalTokens} tokens`;
+                        bubble.innerHTML = renderContent(fullText);
+                        messagesEl.scrollTop = messagesEl.scrollHeight;
+                    }
+                } catch { }
+            };
+
+            es.onerror = () => { es.close(); finish(); };
+
+            function finish() {
+                activeEs = null;
+                sendBtn.style.display = '';
+                stopBtn.style.display = 'none';
+                messagesEl.querySelectorAll('pre code')
+                    .forEach(el => hljs.highlightElement(el));
+            }
+        }
+
+        // ── Renderers ─────────────────────────────────────────────────────────────────
+        function renderContent(text) {
+            // Strip raw JSON tool results the LLM might echo
+            text = text.replace(/\{"success":(true|false)[^}]*\}/gs, '');
+            return text
+                .replace(/```(\w+)?\n([\s\S]*?)```/g,
+                    (_, lang, code) =>
+                        `<pre><code class="${lang || ''}">${escHtml(code.trim())}</code></pre>`)
+                .replace(/`([^`]+)`/g,
+                    '<code class="inline-code">$1</code>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>');
+        }
+
+        function escHtml(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+    </script>
+}
+
+@* @section Scripts {
     <script>
         const messagesEl = document.getElementById('chatMessages');
         const inputEl    = document.getElementById('chatInput');
@@ -447,4 +660,4 @@
             return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         }
     </script>
-}
+} *@

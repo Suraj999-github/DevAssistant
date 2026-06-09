@@ -77,7 +77,7 @@ namespace DevAssistant.Services
             }
 
             history.AddUserMessage(userMessage);
-           // LogOutboundRequest(history);
+            // LogOutboundRequest(history);
 
             // ── 2. Log the exact request we're about to send ────────────────────
             LogLlmRequest(history);
@@ -88,15 +88,23 @@ namespace DevAssistant.Services
             //   2. When Ollama returns a tool_call, invoke the C# method automatically
             //   3. Send the tool result back to Ollama
             //   4. Repeat until Ollama returns a plain text response
+            //var executionSettings = new OpenAIPromptExecutionSettings
+            //{
+            //    Temperature = 0.7f,
+            //    MaxTokens = 2048,
+            //    ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
+            //    /*
+            //     * ToolCallBehavior.AutoInvokeKernelFunctions will be set in Step 4
+            //     * when we add tools. For now, no tools → pure completion.
+            //     */
+            //};
+
+            // REPLACE:
             var executionSettings = new OpenAIPromptExecutionSettings
             {
-                Temperature = 0.7f,
+                Temperature = 0.7,
                 MaxTokens = 2048,
                 ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
-                /*
-                 * ToolCallBehavior.AutoInvokeKernelFunctions will be set in Step 4
-                 * when we add tools. For now, no tools → pure completion.
-                 */
             };
 
             // ── 4. Get the chat completion service from the kernel ───────────────
